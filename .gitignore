@@ -1,0 +1,39 @@
+# Sanal ortam klasörleri
+.venv/
+venv/
+ENV/
+
+# Python derleme dosyaları
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# IDE ve sistem dosyaları
+.vscode/
+.idea/
+.DS_Store
+
+# Log ve geçici dosyalar
+*.log
+*.tmp
+
+# Jupyter checkpoint'leri
+.ipynb_checkpoints/
+
+# Build / dağıtım klasörleri
+build/
+dist/
+*.egg-info/
+
+
+*.pt
+/runs/*
+*.cache
+*.png
+*.mp4
+*.jpg
+*.jpeg
+*.txt
+*.pdf
