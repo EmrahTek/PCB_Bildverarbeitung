@@ -1,4 +1,5 @@
 # NMS, Thresholding, Score-Filter
+# Treffer bereinigen: Score-Filter, Non-Maximum Suppression (NMS), Counts pro Label.
 
 """
 postprocess.py
@@ -14,5 +15,20 @@ Inputs:
 Outputs:
 - list[Detection] after filtering/NMS
 - dict[label, count] for UI overlay and logging
+
+Zu implementierende Funktionen
+
+    filter_by_score(detections, min_score) -> detections
+
+    iou(a: BBox, b: BBox) -> float
+
+    non_max_suppression(detections, iou_threshold) -> detections
+
+    count_by_label(detections) -> dict[str, int]
+
+Intersection over Union (search terms):
+"IoU bounding box explanation"
+"non maximum suppression implementation python"
+
 """
 
