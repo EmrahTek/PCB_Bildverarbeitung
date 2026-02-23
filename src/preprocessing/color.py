@@ -1,3 +1,6 @@
+# Farbraum-Konvertierungen und optionale Normalisierung (robuster gegen Lichtwechsel).
+
+
 """
 color.py
 
@@ -11,4 +14,19 @@ Inputs:
 Outputs:
 - Grayscale or HSV images as NumPy arrays
 - Optionally normalized images to reduce lighting sensitivity
+"""
+
+"""
+Zu implementierende Funktionen
+
+    to_gray(bgr: np.ndarray) -> np.ndarray
+
+    to_hsv(bgr: np.ndarray) -> np.ndarray
+
+    normalize_intensity(gray: np.ndarray) -> np.ndarray (optional)
+
+    (Optional) white_balance_grayworld(bgr) -> bgr
+
+cvtColor:
+https://docs.opencv.org/4.x/d8/d01/group__imgproc__color__conversions.html
 """
