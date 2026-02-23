@@ -1,0 +1,1 @@
+# Baseline: matchTemplate + Multi-Scale
