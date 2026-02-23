@@ -1,5 +1,5 @@
 # argparse / flags (camera vs video, headless, debug)
-
+# Saubere CLI: Kamera vs Video, Debug, Headless, max-frames, config-path.
 """
 cli.py
 
@@ -19,4 +19,21 @@ Outputs:
 - Loaded configuration dictionary
 
 
+"""
+"""
+Zu implementierende Funktionen
+
+    build_arg_parser() -> argparse.ArgumentParser
+
+    parse_args(argv=None) -> Namespace
+
+    load_config(config_path: Path) -> dict
+
+    (Optional) validate_args(args) -> None
+
+
+   argparse:
+https://docs.python.org/3/library/argparse.html 
+
+    
 """

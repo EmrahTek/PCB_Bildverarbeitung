@@ -1,5 +1,5 @@
 # Orchestrierung: capture -> prepocess -> detect -> render
-
+# Orchestrierung: FrameSource → Preprocessing → Detection → Postprocess → Render → Output/Exit.
 """
 pipeline.py
 
@@ -20,4 +20,29 @@ Inputs:
 Outputs:
 - Rendered frames (for display or debug saving)
 - Logs describing runtime status and detection results
+"""
+
+"""
+Zu implementierende Funktionen / Klassen
+
+class Pipeline:
+
+    __init__(frame_source, preprocessors, detector, renderer, logger, config)
+
+    process_frame(frame, meta) -> np.ndarray | None
+
+    run() -> None
+
+build_pipeline_from_config(config: dict, args) -> Pipeline
+
+safe_imshow_or_headless(...) (je nach --headless)
+
+OpenCV imshow/waitKey:
+https://docs.opencv.org/4.x/dc/d2e/tutorial_py_image_display.html
+
+Designing testable pipelines (search terms):
+"dependency injection python pipeline"
+"clean architecture python small projects"
+
+
 """
