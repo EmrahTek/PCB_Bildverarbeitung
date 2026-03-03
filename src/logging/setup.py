@@ -44,7 +44,7 @@ import logging.config
 from pathlib import Path
 from typing import Any, Dict
 
-def setup_logging(logging_config_path: str | Path, *, default_level: int = logging.INFO)
+def setup_logging(logging_config_path: str | Path, *, default_level: int = logging.INFO):
     """
     Setup logging from a YAML file (dictConfig), with a safe fallback.
 
@@ -61,7 +61,7 @@ def setup_logging(logging_config_path: str | Path, *, default_level: int = loggi
     try: 
         config = _load_yaml(path)
         _ensure_log_dirs(config)
-        ogging.config.dictConfig(config)
+        logging.config.dictConfig(config)
         logging.getLogger(__name__).info("Logging configured from %s", path)
     except Exception as exc:
         logging.basicConfig(level=default_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
