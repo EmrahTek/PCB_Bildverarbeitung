@@ -70,7 +70,7 @@ def setup_logging(logging_config_path: str | Path, *, default_level: int = loggi
 
 
 
-def _load_yaml(path: Path) -> Dict[str,Any]:
+def _load_yaml(path: Path) -> Dict[str,Any]: # binde stricht bedeutet private funktion. 
     """
     Load YAML file into a dict.
     Kept local to avoid scattering YAML dependency across the project.
@@ -93,7 +93,7 @@ def _ensure_log_dirs(config:Dict[str,Any]) -> None:
     Create parent directories for any file handlers that specify a filename.
     This prevents runtime errors when RotatingFileHandler points to logs/app.log.
     """
-    handlers = config.get("handlers", {})
+    handlers = config.get("handlers", {}) # Handlers means log processors. 
     if not isinstance(handlers,dict):
         return
     for h in handlers.values():
