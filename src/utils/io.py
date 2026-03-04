@@ -20,10 +20,7 @@ Outputs:
 - Python dictionaries (from YAML config)
 - Template image collections (e.g., dict[label] -> list[np.ndarray])
 - Debug images saved to disk
-"""
 
-
-"""
 Zu implementierende Funktionen
 
 project_root() -> Path

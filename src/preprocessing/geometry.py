@@ -19,10 +19,7 @@ Outputs:
 - warped_board: normalized board image (NumPy array)
 - debug_info: optional metadata for visualization (corners, contour, homography)
 
-"""
 
-
-"""
 Zu implementierende Funktionen
 
     find_board_contour(gray_or_edges) -> contour | None

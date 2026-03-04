@@ -12,10 +12,8 @@ Inputs:
 - loop flag to replay the video
 
 Outputs:
-- Frames as NumPy arrays (BGR) and FrameMeta objects
-"""
+- Frames as NumPy arrays (BGR) and FrameMeta objects 
 
-"""
 Zu implementierende Funktionen / Klassen
 
 class VideoFileSource(FrameSource):

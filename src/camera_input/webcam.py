@@ -19,9 +19,7 @@ Inputs:
 Outputs:
 - Frames as NumPy arrays (BGR) and FrameMeta objects
 
-"""
 
-"""
 Zu implementierende Funktionen / Klassen
 
 class WebcamSource(FrameSource):

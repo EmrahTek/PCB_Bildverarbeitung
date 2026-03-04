@@ -14,9 +14,7 @@ Inputs:
 Outputs:
 - Grayscale or HSV images as NumPy arrays
 - Optionally normalized images to reduce lighting sensitivity
-"""
 
-"""
 Zu implementierende Funktionen
 
     to_gray(bgr: np.ndarray) -> np.ndarray

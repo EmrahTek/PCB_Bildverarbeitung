@@ -14,9 +14,7 @@ Inputs:
 
 Outputs:
 - Filtered images (grayscale, edges, binary masks) as NumPy arrays
-"""
 
-"""
 Zu implementierende Funktionen
 
     gaussian_blur(img, ksize=(5,5), sigma=0) -> img
