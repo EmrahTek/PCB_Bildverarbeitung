@@ -12,7 +12,7 @@ from src.camera_input.webcam import WebcamSource, WebcamConfig
 from src.camera_input.video_file import VideoFileSource, VideoFileConfig
 
 from src.utils.io import load_templates
-from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
+#from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
 
 
 LOGGER = logging.getLogger(__name__)

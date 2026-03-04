@@ -40,20 +40,40 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-def parse_args() -> argparse.Namespace: 
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
     Parse CLI arguments.
-    Keep interface stable early; add more options later.
+
+    Args:
+        argv: Optional argument list for testing. If None, uses sys.argv.
+
+    Returns:
+        argparse.Namespace with parsed runtime parameters.
     """
     p = argparse.ArgumentParser(description="PCB Component Detection (Real-time)")
-    p.add_argument("--source", choices=["Webcam", "Video", "Foto"], default="webcam", help="Frame source type")
+
+    # Keep source values lowercase everywhere to avoid mismatches.
+    p.add_argument(
+        "--source",
+        choices=["webcam", "video", "image"],
+        default="webcam",
+        help="Frame source type",
+    )
+
+    # Webcam options
     p.add_argument("--camera-index", type=int, default=0, help="Webcam device index")
     p.add_argument("--width", type=int, default=None, help="Requested capture width (best-effort)")
     p.add_argument("--height", type=int, default=None, help="Requested capture height (best-effort)")
+
+    # Video / image options
     p.add_argument("--video-path", type=Path, default=None, help="Path to input video file")
-    p.add_argument("--loop", action="store_true", help="Loop video file playback")
+    p.add_argument("--image-path", type=Path, default=None, help="Path to input image file")
+    p.add_argument("--loop", action="store_true", help="Loop video/image playback")
+
+    # Runtime flags
     p.add_argument("--debug", action="store_true", help="Enable debug overlay info")
     p.add_argument("--headless", action="store_true", help="Run without GUI window (future use)")
     p.add_argument("--logging", type=Path, default=Path("config/logging.yaml"), help="Logging YAML path")
-    return p.parse_args()
 
+    return p.parse_args(argv)
