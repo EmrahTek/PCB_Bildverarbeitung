@@ -46,3 +46,81 @@ Designing testable pipelines (search terms):
 
 
 """
+
+from __future__ import annotations
+import logging
+from dataclasses import dataclass
+from typing import Protocol, Optional
+
+import cv2 as cv
+import numpy as np
+
+from src.camera_input.base import FrameSource
+from src.render.fps import FPSCounter
+from src.render.overlay import draw_detections
+from src.utils.types import Detection
+
+LOGGER = logging.getLogger(__name__)
+
+class Detector(Protocol):
+    """
+    Minimal detector protocol.
+    Any detector with .detect(frame)->list[Detection] can be plugged in.
+    """
+    #def detect(self, frame: np.ndarray) -> list[Detection]:
+
+@dataclass(frozen=True)
+class PipelineConfig: 
+    window_name: str = "PCB Component Detection"
+    exit_key: str = "q"
+
+class Pipeline:
+    """
+    Orchestrates: capture -> detect -> render -> display.
+    """
+    def __init__(self, detector: Detector, *, cfg: PipelineConfig = PipelineConfig()) -> None:
+        self._detector = detector
+        self._cfg = cfg
+        self._fps = FPSCounter(window_size=30)
+
+    def run(self, source: FrameSource, *, debug: bool = False, headless: bool = False) -> None:
+        """
+        Run the main loop.
+
+        Args:
+            source: FrameSource (webcam/video)
+            debug: If True, show detection scores.
+            headless: If True, do not open GUI (not used heavily today).
+        """
+        source.open()
+        LOGGER.info("Pipeline started. headless=%s debug=%s", headless, debug)
+
+        try:
+            while True:
+                frame, meta = source.read()
+                if frame is None or meta is None:
+                    LOGGER.info("End of stream or read failure. Exiting loop.")
+
+                fps = self._fps.tick()
+
+                # DEtect components
+                detections = self._detector.detector.detect(frame)
+                # Render overlay (copy of the frame)
+                vis = draw_detections(frame,detections,fps=fps,debug=debug)
+
+                if not headless:
+                    cv.imshow(self._cfg.window_name,vis)
+
+                    # Use waitKey(1) for real-time; read key for exit
+                    key = cv.waitKey(1) & 0xFF
+                    if key == ord(self._cfg.exit_key):
+                        LOGGER.info("Exit key pressed (%s).", self._cfg.exit_key)
+                        break
+
+        finally:
+            source.release()
+            if not headless:
+                cv.destroyAllWindows()
+            LOGGER.info("Pipeline stopped cleanly.")
+
+
