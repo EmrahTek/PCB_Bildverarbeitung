@@ -1,3 +1,7 @@
+python main.py --source webcam --camera-index 0 --debug
+
+
+
 OpenCV – Template Matching (matchTemplate):
 https://docs.opencv.org/4.x/d4/dc6/tutorial_py_template_matching.html
 
