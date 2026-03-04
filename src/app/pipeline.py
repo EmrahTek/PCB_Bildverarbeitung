@@ -102,7 +102,8 @@ class Pipeline:
                 fps = self._fps.tick()
 
                 # DEtect components
-                detections = self._detector._detector.detect(frame)
+                #detections = self._detector._detector.detect(frame)
+                detections = self._detector.detect(frame)
                 # Render overlay (copy of the frame)
                 vis = draw_detections(frame,detections,fps=fps,debug=debug)
 
