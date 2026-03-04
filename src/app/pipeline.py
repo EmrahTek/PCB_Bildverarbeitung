@@ -20,9 +20,7 @@ Inputs:
 Outputs:
 - Rendered frames (for display or debug saving)
 - Logs describing runtime status and detection results
-"""
 
-"""
 Zu implementierende Funktionen / Klassen
 
 class Pipeline:

@@ -19,9 +19,8 @@ Outputs:
 - Loaded configuration dictionary
 
 
-"""
-"""
-Zu implementierende Funktionen
+
+    Zu implementierende Funktionen
 
     build_arg_parser() -> argparse.ArgumentParser
 
@@ -33,9 +32,7 @@ Zu implementierende Funktionen
 
 
    argparse:
-https://docs.python.org/3/library/argparse.html 
-
-    
+    # https://docs.python.org/3/library/argparse.html     
 """
 
 from __future__ import annotations
