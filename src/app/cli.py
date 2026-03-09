@@ -55,12 +55,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--width", type=int, default=None)
     p.add_argument("--height", type=int, default=None)
 
-    # video / image / images
-    p.add_argument("--video-path", type=Path, default=None)
-    p.add_argument("--image-path", type=Path, default=None)
-    p.add_argument("--images-dir", type=Path, default=None)
-    p.add_argument("--recursive", action="store_true")
-    p.add_argument("--loop", action="store_true")
+    # Video / image / images options
+    p.add_argument("--video-path", type=Path, default=None, help="Path to input video file")
+    p.add_argument("--image-path", type=Path, default=None, help="Path to input image file")
+    p.add_argument("--images-dir", type=Path, default=None, help="Directory containing images")
+    p.add_argument("--recursive", action="store_true", help="Search images-dir recursively")
+    p.add_argument("--loop", action="store_true", help="Loop playback for video/image/images")
+
+    # Video performance options
+    p.add_argument("--video-resize-width", type=int, default=None,
+                help="Resize video frames by width (keeps aspect ratio if height is not set)")
+    p.add_argument("--video-resize-height", type=int, default=None,
+                help="Resize video frames by height (keeps aspect ratio if width is not set)")
+    p.add_argument("--video-stride", type=int, default=1,
+                help="Read every Nth frame (stride>=1). 2=skip 1 decode 1, ...")
 
     # runtime
     p.add_argument("--debug", action="store_true")
