@@ -28,3 +28,31 @@ Zu implementierende Funktionen
 cvtColor:
 https://docs.opencv.org/4.x/d8/d01/group__imgproc__color__conversions.html
 """
+
+# src/preprocessing/color.py
+from __future__ import annotations
+
+import cv2 as cv
+import numpy as np
+
+
+def to_gray(bgr: np.ndarray) -> np.ndarray:
+    """Convert BGR image to grayscale."""
+    if bgr.ndim == 2:
+        return bgr
+    return cv.cvtColor(bgr, cv.COLOR_BGR2GRAY)
+
+
+def to_hsv(bgr: np.ndarray) -> np.ndarray:
+    """Convert BGR image to HSV."""
+    return cv.cvtColor(bgr, cv.COLOR_BGR2HSV)
+
+
+def normalize_gray(gray: np.ndarray) -> np.ndarray:
+    """
+    Normalize grayscale to uint8 [0,255].
+    Useful if input pipeline produces float/int16 etc.
+    """
+    if gray.dtype == np.uint8:
+        return gray
+    return cv.normalize(gray, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
