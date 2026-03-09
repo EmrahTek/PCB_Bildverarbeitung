@@ -151,6 +151,9 @@ class Pipeline:
 
         finally:
             source.release()
+            # Create a resizable window and force a reasonable size/position
             if not headless:
-                cv.destroyAllWindows()
+                cv.namedWindow(self._cfg.window_name, cv.WINDOW_NORMAL)
+                cv.resizeWindow(self._cfg.window_name, 960, 540)  # adjust if you want
+                cv.moveWindow(self._cfg.window_name, 50, 50)      # keep on primary screen
             LOGGER.info("Pipeline stopped cleanly.")
