@@ -47,7 +47,6 @@ import cv2 as cv
 import numpy as np
 
 from src.utils.types import Detection
-
 @dataclass(frozen=True)
 class OverlayConfig:
     """
@@ -55,11 +54,20 @@ class OverlayConfig:
     Keep defaults conservative and readable.
     """
     draw_scores: bool = True
-    thickness: int = 2
+
+    # Box style
+    thickness: int = 3  # was 2
+    box_color_bgr: tuple[int, int, int] = (0, 255, 0)  # green
+
+    # Text style
     font: int = cv.FONT_HERSHEY_SIMPLEX
-    font_scale: float = 0.6
-    font_thickness: int = 1
+    font_scale: float = 0.85  # was 0.6
+    font_thickness: int = 2   # was 1
     pad_px: int = 6  # padding for text box
+
+    # Label colors (background + text)
+    label_bg_bgr: tuple[int, int, int] = (0, 0, 0)        # black
+    label_text_bgr: tuple[int, int, int] = (255, 255, 255) # white
 
 def _colors_for_image(img: np.ndarray) -> tuple[object, object]:
     """
@@ -77,18 +85,29 @@ def _colors_for_image(img: np.ndarray) -> tuple[object, object]:
         return (255,255,255,255), (0,0,0,255)
     raise ValueError(f"Unsupported image shape for overlay: {img.shape}")
 
-def _put_label(img: np.ndarray,x: int,y:int, text:str,cfg:OverlayConfig) -> None:
+def _pick_color_for_frame(vis: np.ndarray, bgr: tuple[int, int, int], gray_fallback: int = 255):
+    """Return a color scalar compatible with the given image (gray vs BGR vs BGRA)."""
+    if vis.ndim == 2:
+        return gray_fallback
+    if vis.ndim == 3 and vis.shape[2] == 3:
+        return bgr
+    if vis.ndim == 3 and vis.shape[2] == 4:
+        return (*bgr, 255)
+    raise ValueError(f"Unsupported image shape for overlay: {vis.shape}")
+
+def _put_label(img: np.ndarray, x: int, y: int, text: str, cfg: OverlayConfig) -> None:
     """
     Draw a small filled rectangle + text at (x, y) anchor.
     """
-    text_color, rect_color = _colors_for_image(img)
+    text_color = _pick_color_for_frame(img, cfg.label_text_bgr, gray_fallback=255)
+    rect_color = _pick_color_for_frame(img, cfg.label_bg_bgr, gray_fallback=0)
+
     (tw, th), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
-    # Ensure label is inside image bounds
+
     h, w = img.shape[:2]
     x1 = max(0, min(x, w - 1))
     y1 = max(0, min(y, h - 1))
 
-    # Draw background rect above the anchor point if possible
     box_x2 = min(w, x1 + tw + 2 * cfg.pad_px)
     box_y1 = max(0, y1 - th - baseline - 2 * cfg.pad_px)
     box_y2 = min(h, y1)
@@ -128,15 +147,23 @@ def draw_detections(
         A new image with overlays drawn.
     """
     vis = frame.copy()
-    text_color, rect_color = _colors_for_image(vis)
 
-    # Draw FPS first
+    # Colors compatible with gray/BGR/BGRA frames
+    fps_color = _pick_color_for_frame(vis, cfg.label_text_bgr, gray_fallback=255)
+    box_color = _pick_color_for_frame(vis, cfg.box_color_bgr, gray_fallback=255)
+
+    # Draw FPS first (slightly larger and readable)
     if fps is not None:
         fps_text = f"FPS: {fps:5.1f}"
         cv.putText(
-            vis, fps_text, (10, 25),
-            cfg.font, cfg.font_scale,
-            text_color, cfg.font_thickness, cv.LINE_AA
+            vis,
+            fps_text,
+            (10, 30),
+            cfg.font,
+            max(cfg.font_scale, 0.8),  # ensure readable fps size
+            fps_color,
+            max(cfg.font_thickness, 2),
+            cv.LINE_AA,
         )
 
     # Draw each detection
@@ -150,15 +177,14 @@ def draw_detections(
         x2 = max(0, min(int(x2), w))
         y2 = max(0, min(int(y2), h))
 
-        # Draw rectangle
-        cv.rectangle(vis, (x1, y1), (x2, y2), text_color, thickness=cfg.thickness)
+        # Draw rectangle (green, thicker)
+        cv.rectangle(vis, (x1, y1), (x2, y2), box_color, thickness=cfg.thickness)
 
         # Build label text
-        if debug and cfg.draw_scores:
-            label = f"{det.label} {det.score:.2f}"
-        else:
-            label = det.label
+        label = f"{det.label} {det.score:.2f}" if (debug and cfg.draw_scores) else det.label
 
+        # Draw label box + text
         _put_label(vis, x1, y1, label, cfg)
 
     return vis
+

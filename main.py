@@ -112,9 +112,9 @@ def main() -> None:
         templates,
         TemplateMatchConfig(
             label="ESP32",
-            score_threshold=0.70,
+            score_threshold=0.82,
             scales=(0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
-            nms_iou_threshold=0.3,
+            nms_iou_threshold=0.2,
         ),
     )
 
