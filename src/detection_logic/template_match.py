@@ -63,8 +63,8 @@ class TemplateMatchConfig:
     """
     label: str = "ESP32"
     method: int = cv.TM_CCOEFF_NORMED
-    score_threshold: float = 0.78
-    scales: tuple[float,...] = (0.8,0.9,1.0,1.1,1.2)
+    score_threshold: float = 0.70
+    scales: tuple[float,...] = (0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
     nms_iou_threshold: float = 0.3
     max_candidates_per_scale: int = 200
     max_detections: int = 20
