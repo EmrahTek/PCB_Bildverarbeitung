@@ -59,6 +59,7 @@ from src.camera_input.base import FrameSource
 from src.render.fps import FPSCounter
 from src.render.overlay import draw_detections
 from src.utils.types import Detection
+import time
 
 LOGGER = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ class Pipeline:
         debug: bool = False,
         headless: bool = False,
         max_frames: int | None = None,
+        wait_ms : int=1
     ) -> None:
         """
         Args:
@@ -151,12 +153,18 @@ class Pipeline:
 
                 if not headless:
                     cv.imshow(self._cfg.window_name, vis)
-                    key = cv.waitKey(1) & 0xFF
-                    if key == ord(self._cfg.exit_key):
-                        LOGGER.info("Exit key pressed (%s).", self._cfg.exit_key)
-                        break
 
-                frame_count += 1
+                # wait_ms: images/video için hız kontrolü (ör. 3000ms = 3sn)
+                key = cv.waitKey(wait_ms) & 0xFF
+                if key == ord(self._cfg.exit_key):
+                    LOGGER.info("Exit key pressed (%s).", self._cfg.exit_key)
+                    break
+                else:
+                # Headless modda pencere yok; yine de tempo kontrolü istiyorsak sleep kullanırız.
+                    if wait_ms > 0:
+                        time.sleep(wait_ms / 1000.0)
+
+                    frame_count += 1
                 if max_frames is not None and frame_count >= max_frames:
                     LOGGER.info("Reached max_frames=%d. Stopping.", max_frames)
                     break
