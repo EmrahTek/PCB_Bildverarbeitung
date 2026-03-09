@@ -100,12 +100,14 @@ class TemplateMatcher(Detector):
                 # Response map
                 resp = cv.matchTemplate(gray,resized,self._cfg.method)
                 # Positions above threshold
-                ys, xs = np.where(resp >= self._cfg.score_threshold)
+                resp_f = resp.astype(np.float32)
+                kernel = np.ones((3, 3), np.uint8)
+                resp_dil = cv.dilate(resp_f, kernel)
+                mask = (resp_f >= self._cfg.score_threshold) & (resp_f == resp_dil)
+                ys, xs = np.where(mask)
                 if xs.size == 0:
                     continue
-
-                scores = resp[ys, xs].astype(np.float32)
-
+                scores = resp_f[ys, xs]
                 # Speed guard: keep only top-K hits
                 if scores.size > self._cfg.max_candidates_per_scale:
                     k = self._cfg.max_candidates_per_scale
