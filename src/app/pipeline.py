@@ -110,7 +110,7 @@ class Pipeline:
         debug: bool = False,
         headless: bool = False,
         max_frames: int | None = None,
-        wait_ms : int=1
+        wait_ms : int=3
     ) -> None:
         """
         Args:
@@ -140,12 +140,20 @@ class Pipeline:
                 # --- Detect ---
                 detections = self._detector.detect(proc)
 
-                if debug and (meta.frame_id % 30 == 0):
+                # detect sonrası
+                if debug:
+                # images/image için her frame logla (spam değil, çünkü az resim var)
+                    if meta.source.startswith("images:") or meta.source.startswith("image:"):
+                        best = max((d.score for d in detections), default=0.0)
+                        LOGGER.info("ESP32: %s | count=%d | best=%.2f | src=%s",
+                                    "GEFUNDEN" if detections else "NICHT",
+                                    len(detections), best, meta.source)
+                    # webcam/video için 1 saniyede 1
+                elif meta.frame_id % 30 == 0:
                     best = max((d.score for d in detections), default=0.0)
                     LOGGER.info("ESP32: %s | count=%d | best=%.2f",
                                 "GEFUNDEN" if detections else "NICHT",
                                 len(detections), best)
-
 
 
                 # --- Render ---
