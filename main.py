@@ -45,7 +45,12 @@ def build_source(args):
     if src == "video":
         if args.video_path is None:
             raise ValueError("--video-path is required when --source video")
-        return VideoFileSource(VideoFileConfig(path=args.video_path, loop=args.loop))
+        return VideoFileSource(VideoFileConfig(
+                path=args.video_path,
+                loop=args.loop,
+                resize_width=960,   
+                stride=1,           
+            ))
 
     if src == "image":
         if args.image_path is None:
