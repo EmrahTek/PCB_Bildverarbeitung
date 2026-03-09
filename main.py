@@ -18,6 +18,7 @@ from src.utils.io import load_templates
 from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
 
 from src.preprocessing.geometry import warp_board, BoardWarpConfig
+import cv2 as cv 
 
 LOGGER = logging.getLogger(__name__)
 
@@ -74,6 +75,13 @@ def main() -> None:
     # --- Templates ---
     template_dir = Path("assets/templates/esp32_module")
     templates = load_templates(template_dir)
+    aug = []
+    for t in templates:
+        aug.append(t)
+        aug.append(cv.rotate(t, cv.ROTATE_90_CLOCKWISE))
+        aug.append(cv.rotate(t, cv.ROTATE_180))
+        aug.append(cv.rotate(t, cv.ROTATE_90_COUNTERCLOCKWISE))
+    templates = aug
 
     detector = TemplateMatcher(
         templates,
