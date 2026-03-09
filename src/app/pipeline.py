@@ -138,6 +138,14 @@ class Pipeline:
                 # --- Detect ---
                 detections = self._detector.detect(proc)
 
+                if debug and (meta.frame_id % 30 == 0):
+                    best = max((d.score for d in detections), default=0.0)
+                    LOGGER.info("ESP32: %s | count=%d | best=%.2f",
+                                "GEFUNDEN" if detections else "NICHT",
+                                len(detections), best)
+
+
+
                 # --- Render ---
                 vis = draw_detections(proc, detections, fps=fps, debug=debug)
 
