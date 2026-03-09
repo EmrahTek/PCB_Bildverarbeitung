@@ -116,6 +116,10 @@ class Pipeline:
             max_frames: Stop after N frames (useful for tests and quick experiments).
         """
         source.open()
+        if not headless:
+            cv.namedWindow(self._cfg.window_name, cv.WINDOW_NORMAL)
+            cv.resizeWindow(self._cfg.window_name, 960, 540)
+            cv.moveWindow(self._cfg.window_name, 50, 50)
         LOGGER.info("Pipeline started. headless=%s debug=%s max_frames=%s", headless, debug, max_frames)
 
         frame_count = 0
