@@ -35,6 +35,31 @@ class BoardWarpPreprocessor:
     def process(self, frame: np.ndarray) -> np.ndarray:
         warped, _H = warp_board(frame, self._cfg)
         return warped if warped is not None else frame
+    
+class ResizePreprocessor:
+    """Resize frames before detection to avoid OOM and improve FPS."""
+    def __init__(self, width: int) -> None:
+        self._width = int(width)
+
+    def process(self, frame: np.ndarray) -> np.ndarray:
+        h, w = frame.shape[:2]
+        if w <= self._width:
+            return frame
+        scale = self._width / w
+        new_w = self._width
+        new_h = int(round(h * scale))
+        return cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
+
+
+class ComposePreprocessor:
+    """Chain multiple preprocessors in order."""
+    def __init__(self, steps) -> None:
+        self._steps = steps
+
+    def process(self, frame: np.ndarray) -> np.ndarray:
+        for s in self._steps:
+            frame = s.process(frame)
+        return frame
 
 
 def build_source(args):
@@ -94,9 +119,17 @@ def main() -> None:
     )
 
     # --- Optional preprocessing ---
-    pre = None
+    steps = []
+
+    # 1) Resize first (important to prevent OOM on big photos)
+    if args.proc_resize_width is not None:
+        steps.append(ResizePreprocessor(args.proc_resize_width))
+
+    # 2) Optional board warp after resize
     if args.warp_board:
-        pre = BoardWarpPreprocessor(BoardWarpConfig(output_size=(800, 600)))
+        steps.append(BoardWarpPreprocessor(BoardWarpConfig(output_size=(800, 600))))
+
+    pre = ComposePreprocessor(steps) if steps else None
 
     source = build_source(args)
     pipeline = Pipeline(detector, preprocessor=pre)
