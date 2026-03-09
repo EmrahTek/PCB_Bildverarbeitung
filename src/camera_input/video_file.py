@@ -44,18 +44,27 @@ import numpy as np
 from src.camera_input.base import FrameSource
 from src.utils.types import FrameMeta
 
-
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class VideoFileConfig:
+    """Configuration for VideoFileSource."""
     path: Path
     loop: bool = False
+    resize_width: int | None = None
+    resize_height: int | None = None
+    stride: int = 1  # 1=every frame, 2=skip 1 decode 1, ...
+
 
 class VideoFileSource(FrameSource):
     """
     Video-file frame source for deterministic tests and debugging.
+
+    Features:
+    - Optional loop playback
+    - Optional stride (frame skipping via grab())
+    - Optional resize for faster processing/rendering
     """
 
     def __init__(self, cfg: VideoFileConfig) -> None:
@@ -78,10 +87,28 @@ class VideoFileSource(FrameSource):
         if self._cap is None:
             raise RuntimeError("VideoFileSource.read() called before open().")
 
+        # ---------------------------------------------------------
+        # 1) Optional frame skipping (stride) to speed up playback.
+        #    grab() advances the stream without decoding the frame.
+        #    Example: stride=2 -> skip 1 frame, decode 1 frame.
+        # ---------------------------------------------------------
+        stride = max(1, int(self._cfg.stride))
+        for _ in range(stride - 1):
+            if not self._cap.grab():
+                # End of stream while skipping
+                if self._cfg.loop:
+                    self._cap.set(cv.CAP_PROP_POS_FRAMES, 0)
+                    self._frame_id = 0
+                    if not self._cap.grab():
+                        return None, None
+                else:
+                    return None, None
+
+        # Decode one frame
         ok, frame = self._cap.read()
         if not ok or frame is None:
             if self._cfg.loop:
-                # Restart video
+                # Restart video and try again
                 self._cap.set(cv.CAP_PROP_POS_FRAMES, 0)
                 self._frame_id = 0
                 ok2, frame2 = self._cap.read()
@@ -90,6 +117,29 @@ class VideoFileSource(FrameSource):
                 frame = frame2
             else:
                 return None, None
+
+        # ---------------------------------------------------------
+        # 2) Optional resize for faster rendering/processing.
+        #    If only width or height is given, keep aspect ratio.
+        # ---------------------------------------------------------
+        if self._cfg.resize_width is not None or self._cfg.resize_height is not None:
+            h, w = frame.shape[:2]
+
+            if self._cfg.resize_width is None:
+                # Keep aspect ratio based on height
+                scale = float(self._cfg.resize_height) / float(h)
+                new_w = int(round(w * scale))
+                new_h = int(round(self._cfg.resize_height))
+            elif self._cfg.resize_height is None:
+                # Keep aspect ratio based on width
+                scale = float(self._cfg.resize_width) / float(w)
+                new_w = int(round(self._cfg.resize_width))
+                new_h = int(round(h * scale))
+            else:
+                new_w = int(self._cfg.resize_width)
+                new_h = int(self._cfg.resize_height)
+
+            frame = cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
 
         meta = FrameMeta(
             frame_id=self._frame_id,
@@ -104,4 +154,3 @@ class VideoFileSource(FrameSource):
             self._cap.release()
             self._cap = None
             LOGGER.info("Video released.")
-
