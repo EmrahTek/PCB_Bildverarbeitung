@@ -35,6 +35,7 @@ Outputs:
     # https://docs.python.org/3/library/argparse.html     
 """
 
+# src/app/cli.py
 from __future__ import annotations
 
 import argparse
@@ -43,37 +44,31 @@ from pathlib import Path
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
-    Parse CLI arguments.
-
-    Args:
-        argv: Optional argument list for testing. If None, uses sys.argv.
-
-    Returns:
-        argparse.Namespace with parsed runtime parameters.
+    CLI arguments for selecting source and runtime behavior.
     """
     p = argparse.ArgumentParser(description="PCB Component Detection (Real-time)")
 
-    # Keep source values lowercase everywhere to avoid mismatches.
-    p.add_argument(
-        "--source",
-        choices=["webcam", "video", "image"],
-        default="webcam",
-        help="Frame source type",
-    )
+    p.add_argument("--source", choices=["webcam", "video", "image", "images"], default="webcam")
 
-    # Webcam options
-    p.add_argument("--camera-index", type=int, default=0, help="Webcam device index")
-    p.add_argument("--width", type=int, default=None, help="Requested capture width (best-effort)")
-    p.add_argument("--height", type=int, default=None, help="Requested capture height (best-effort)")
+    # webcam
+    p.add_argument("--camera-index", type=int, default=0)
+    p.add_argument("--width", type=int, default=None)
+    p.add_argument("--height", type=int, default=None)
 
-    # Video / image options
-    p.add_argument("--video-path", type=Path, default=None, help="Path to input video file")
-    p.add_argument("--image-path", type=Path, default=None, help="Path to input image file")
-    p.add_argument("--loop", action="store_true", help="Loop video/image playback")
+    # video / image / images
+    p.add_argument("--video-path", type=Path, default=None)
+    p.add_argument("--image-path", type=Path, default=None)
+    p.add_argument("--images-dir", type=Path, default=None)
+    p.add_argument("--recursive", action="store_true")
+    p.add_argument("--loop", action="store_true")
 
-    # Runtime flags
-    p.add_argument("--debug", action="store_true", help="Enable debug overlay info")
-    p.add_argument("--headless", action="store_true", help="Run without GUI window (future use)")
-    p.add_argument("--logging", type=Path, default=Path("config/logging.yaml"), help="Logging YAML path")
+    # runtime
+    p.add_argument("--debug", action="store_true")
+    p.add_argument("--headless", action="store_true")
+    p.add_argument("--max-frames", type=int, default=None)
+    p.add_argument("--logging", type=Path, default=Path("config/logging.yaml"))
+
+    # preprocessing flags (optional)
+    p.add_argument("--warp-board", action="store_true", help="Enable board detection + homography warp")
 
     return p.parse_args(argv)
