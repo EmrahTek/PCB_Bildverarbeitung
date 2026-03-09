@@ -1,33 +1,23 @@
-1) Komut listesi (senin mevcut CLI’ye göre)
-Webcam :
+Çalıştırma komutları
+1) Images (3 saniye beklemeli, tuning)
 
-python main.py --source webcam --camera-index 0 --debug
+python main.py --source images --images-dir "assets/test_images" --debug --loop --wait-ms 3000 --proc-resize-width 960
 
-Webcam + board warp (perspektif normalize):
+2) Tek resim (tuning)
 
-python main.py --source webcam --camera-index 0 --warp-board --debug
+python main.py --source image --image-path "assets/test_images/<DOSYA>.jpg" --debug --loop --wait-ms 30 --proc-resize-width 960
 
-Video (MP4) – önerilen (performans için resize):
+3) Video (daha akıcı demo)
 
-python main.py --source video --video-path "assets/video/Video_1.mp4" --loop --debug --video-resize-width 960
+python main.py --source video --video-path "assets/video/Video_1.mp4" --loop --debug --video-resize-width 720 --video-stride 2 --proc-resize-width 720
 
+4) Webcam (fast + strict)
 
-Diğer video:
+python main.py --source webcam --camera-index 0 --debug --proc-resize-width 720
 
-python main.py --source video --video-path "assets/video/Video_2.mp4" --loop --debug --video-resize-width 960
+5) Webcam + Warp (yarınki “false positive” çözümünün temeli)
 
-Tek resim (loop ile debug):
-
-python main.py --source image --image-path "assets/test_images/img1.jpg" --loop --debug
-
-Klasördeki resimleri sırayla oynat:
-
-python main.py --source images --images-dir "assets/test_images" --debug
-
-Headless (test amaçlı, pencere açmadan)
-
-python main.py --source images --images-dir "assets/test_images" --headless --max-frames 20 
-
+python main.py --source webcam --camera-index 0 --debug --warp-board --proc-resize-width 720
 
 
 
