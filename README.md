@@ -1,4 +1,44 @@
+1) Komut listesi (senin mevcut CLI’ye göre)
+Webcam :
+
 python main.py --source webcam --camera-index 0 --debug
+
+Webcam + board warp (perspektif normalize):
+
+python main.py --source webcam --camera-index 0 --warp-board --debug
+
+Video (MP4) – önerilen (performans için resize):
+
+python main.py --source video --video-path "assets/video/Video_1.mp4" --loop --debug --video-resize-width 960
+
+
+Diğer video:
+
+python main.py --source video --video-path "assets/video/Video_2.mp4" --loop --debug --video-resize-width 960
+
+Tek resim (loop ile debug):
+
+python main.py --source image --image-path "assets/test_images/img1.jpg" --loop --debug
+
+Klasördeki resimleri sırayla oynat:
+
+python main.py --source images --images-dir "assets/test_images" --debug
+
+Headless (test amaçlı, pencere açmadan)
+
+python main.py --source images --images-dir "assets/test_images" --headless --max-frames 20 
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
