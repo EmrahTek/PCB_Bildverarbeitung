@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import cv2 as cv
 import numpy as np
 
 from src.app.cli import parse_args
@@ -18,24 +19,20 @@ from src.utils.io import load_templates
 from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
 
 from src.preprocessing.geometry import warp_board, BoardWarpConfig
-import cv2 as cv 
 
 LOGGER = logging.getLogger(__name__)
 
 
 class BoardWarpPreprocessor:
-    """
-    Optional preprocessor:
-    - tries to detect the PCB board and warp to canonical view
-    - if detection fails, returns the original frame (no crash)
-    """
+    """Detect board and warp to canonical view; fallback to original frame if not found."""
     def __init__(self, cfg: BoardWarpConfig) -> None:
         self._cfg = cfg
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         warped, _H = warp_board(frame, self._cfg)
         return warped if warped is not None else frame
-    
+
+
 class ResizePreprocessor:
     """Resize frames before detection to avoid OOM and improve FPS."""
     def __init__(self, width: int) -> None:
@@ -53,13 +50,40 @@ class ResizePreprocessor:
 
 class ComposePreprocessor:
     """Chain multiple preprocessors in order."""
-    def __init__(self, steps) -> None:
+    def __init__(self, steps: list[object]) -> None:
         self._steps = steps
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         for s in self._steps:
             frame = s.process(frame)
         return frame
+
+
+def make_esp32_config(source: str) -> TemplateMatchConfig:
+    """
+    Choose detector parameters based on input source.
+
+    - webcam/video: fast + strict to reduce false positives
+    - image/images: tune profile for higher recall on dataset images
+    """
+    src = source.lower()
+
+    if src in ("webcam", "video"):
+        return TemplateMatchConfig(
+            label="ESP32",
+            score_threshold=0.88,
+            scales=(0.18, 0.20, 0.22, 0.25, 0.28, 0.30),
+            nms_iou_threshold=0.2,
+            top_k=1,
+        )
+
+    return TemplateMatchConfig(
+        label="ESP32",
+        score_threshold=0.80,
+        scales=(0.12, 0.15, 0.18, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50),
+        nms_iou_threshold=0.25,
+        top_k=1,
+    )
 
 
 def build_source(args):
@@ -72,11 +96,12 @@ def build_source(args):
         if args.video_path is None:
             raise ValueError("--video-path is required when --source video")
         return VideoFileSource(VideoFileConfig(
-                path=args.video_path,
-                loop=args.loop,
-                resize_width=960,   
-                stride=1,           
-            ))
+            path=args.video_path,
+            loop=args.loop,
+            resize_width=args.video_resize_width,
+            resize_height=args.video_resize_height,
+            stride=args.video_stride,
+        ))
 
     if src == "image":
         if args.image_path is None:
@@ -100,32 +125,25 @@ def main() -> None:
     # --- Templates ---
     template_dir = Path("assets/templates/esp32_module")
     templates = load_templates(template_dir)
-    aug = []
-    for t in templates:
-        aug.append(t)
-        aug.append(cv.rotate(t, cv.ROTATE_90_CLOCKWISE))
-        aug.append(cv.rotate(t, cv.ROTATE_180))
-        aug.append(cv.rotate(t, cv.ROTATE_90_COUNTERCLOCKWISE))
-    templates = aug
 
-    detector = TemplateMatcher(
-        templates,
-        TemplateMatchConfig(
-            label="ESP32",
-            score_threshold=0.88,
-            scales=(0.18, 0.20, 0.22, 0.25, 0.28, 0.30),
-            nms_iou_threshold=0.2,
-        ),
-    )
+    # Rotate templates only for image-based tuning (avoid FPS drop in webcam/video)
+    if args.source.lower() in ("image", "images"):
+        aug: list[np.ndarray] = []
+        for t in templates:
+            aug.append(t)
+            aug.append(cv.rotate(t, cv.ROTATE_90_CLOCKWISE))
+            aug.append(cv.rotate(t, cv.ROTATE_180))
+            aug.append(cv.rotate(t, cv.ROTATE_90_COUNTERCLOCKWISE))
+        templates = aug
+
+    detector = TemplateMatcher(templates, make_esp32_config(args.source))
 
     # --- Optional preprocessing ---
     steps = []
 
-    # 1) Resize first (important to prevent OOM on big photos)
     if args.proc_resize_width is not None:
         steps.append(ResizePreprocessor(args.proc_resize_width))
 
-    # 2) Optional board warp after resize
     if args.warp_board:
         steps.append(BoardWarpPreprocessor(BoardWarpConfig(output_size=(800, 600))))
 
@@ -133,7 +151,14 @@ def main() -> None:
 
     source = build_source(args)
     pipeline = Pipeline(detector, preprocessor=pre)
-    pipeline.run(source, debug=args.debug, headless=args.headless, max_frames=args.max_frames)
+
+    pipeline.run(
+        source,
+        debug=args.debug,
+        headless=args.headless,
+        max_frames=args.max_frames,
+        wait_ms=args.wait_ms,
+    )
 
     LOGGER.info("App finished.")
 
