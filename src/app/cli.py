@@ -79,4 +79,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # preprocessing flags (optional)
     p.add_argument("--warp-board", action="store_true", help="Enable board detection + homography warp")
 
+    p.add_argument("--wait-ms", type=int, default=1, help="Delay per frame in ms (images: try 3000)")
+    p.add_argument("--proc-resize-width", type=int, default=None, help="Resize input frames for processing (keeps aspect ratio)")
+
     return p.parse_args(argv)
