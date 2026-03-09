@@ -45,7 +45,9 @@ Designing testable pipelines (search terms):
 
 """
 
+# src/app/pipeline.py
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from typing import Protocol, Optional
@@ -60,66 +62,95 @@ from src.utils.types import Detection
 
 LOGGER = logging.getLogger(__name__)
 
-class Detector(Protocol):
-    """
-    Minimal detector protocol.
-    Any detector with .detect(frame)->list[Detection] can be plugged in.
-    """
-    #def detect(self, frame: np.ndarray) -> list[Detection]:
+
+class DetectorLike(Protocol):
+    def detect(self, frame: np.ndarray) -> list[Detection]:
+        ...
+
+
+class PreprocessorLike(Protocol):
+    def process(self, frame: np.ndarray) -> np.ndarray:
+        ...
+
+
+class IdentityPreprocessor:
+    """Default preprocessor: returns frame unchanged."""
+    def process(self, frame: np.ndarray) -> np.ndarray:
+        return frame
+
 
 @dataclass(frozen=True)
-class PipelineConfig: 
+class PipelineConfig:
     window_name: str = "PCB Component Detection"
     exit_key: str = "q"
 
+
 class Pipeline:
     """
-    Orchestrates: capture -> detect -> render -> display.
+    capture -> preprocess -> detect -> overlay -> display
     """
-    def __init__(self, detector: Detector, *, cfg: PipelineConfig = PipelineConfig()) -> None:
+
+    def __init__(
+        self,
+        detector: DetectorLike,
+        *,
+        preprocessor: PreprocessorLike | None = None,
+        cfg: PipelineConfig = PipelineConfig(),
+    ) -> None:
         self._detector = detector
+        self._pre = preprocessor if preprocessor is not None else IdentityPreprocessor()
         self._cfg = cfg
         self._fps = FPSCounter(window_size=30)
 
-    def run(self, source: FrameSource, *, debug: bool = False, headless: bool = False) -> None:
+    def run(
+        self,
+        source: FrameSource,
+        *,
+        debug: bool = False,
+        headless: bool = False,
+        max_frames: int | None = None,
+    ) -> None:
         """
-        Run the main loop.
-
         Args:
-            source: FrameSource (webcam/video)
-            debug: If True, show detection scores.
-            headless: If True, do not open GUI (not used heavily today).
+            headless: If True, no GUI window is opened (useful for tests/CI).
+            max_frames: Stop after N frames (useful for tests and quick experiments).
         """
         source.open()
-        LOGGER.info("Pipeline started. headless=%s debug=%s", headless, debug)
+        LOGGER.info("Pipeline started. headless=%s debug=%s max_frames=%s", headless, debug, max_frames)
 
+        frame_count = 0
         try:
             while True:
                 frame, meta = source.read()
                 if frame is None or meta is None:
                     LOGGER.info("End of stream or read failure. Exiting loop.")
+                    break
 
                 fps = self._fps.tick()
 
-                # DEtect components
-                #detections = self._detector._detector.detect(frame)
-                detections = self._detector.detect(frame)
-                # Render overlay (copy of the frame)
-                vis = draw_detections(frame,detections,fps=fps,debug=debug)
+                # --- Preprocess ---
+                proc = self._pre.process(frame)
+
+                # --- Detect ---
+                detections = self._detector.detect(proc)
+
+                # --- Render ---
+                vis = draw_detections(proc, detections, fps=fps, debug=debug)
 
                 if not headless:
-                    cv.imshow(self._cfg.window_name,vis)
-
-                    # Use waitKey(1) for real-time; read key for exit
+                    cv.imshow(self._cfg.window_name, vis)
                     key = cv.waitKey(1) & 0xFF
                     if key == ord(self._cfg.exit_key):
                         LOGGER.info("Exit key pressed (%s).", self._cfg.exit_key)
                         break
+
+                frame_count += 1
+                if max_frames is not None and frame_count >= max_frames:
+                    LOGGER.info("Reached max_frames=%d. Stopping.", max_frames)
+                    break
 
         finally:
             source.release()
             if not headless:
                 cv.destroyAllWindows()
             LOGGER.info("Pipeline stopped cleanly.")
-
-
