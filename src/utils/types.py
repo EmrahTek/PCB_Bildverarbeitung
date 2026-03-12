@@ -19,7 +19,6 @@ Outputs:
 - Dataclass definitions that are imported by other modules.
 """
 
-# src/utils/types.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,13 +27,6 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class BBox:
-    """
-    Axis-aligned bounding box.
-
-    Coordinates:
-        (x1, y1) = top-left
-        (x2, y2) = bottom-right
-    """
     x1: int
     y1: int
     x2: int
@@ -52,7 +44,6 @@ class BBox:
 
 @dataclass(frozen=True)
 class Detection:
-    """A single detection result."""
     label: str
     score: float
     bbox: BBox
@@ -60,7 +51,6 @@ class Detection:
 
 @dataclass(frozen=True)
 class FrameMeta:
-    """Metadata for a captured frame (useful for debugging and logging)."""
     frame_id: int
     timestamp_s: float
     source: str
