@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import fields
 from pathlib import Path
 
 import cv2 as cv
@@ -20,7 +21,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class BoardWarpPreprocessor:
-    """Detect board and warp it to a portrait canonical view."""
+    """Detect board and warp it to a canonical portrait view."""
 
     def __init__(self, cfg: BoardWarpConfig) -> None:
         self._cfg = cfg
@@ -41,7 +42,8 @@ class ResizePreprocessor:
         if w <= self._width:
             return frame
         scale = self._width / w
-        return cv.resize(frame, (self._width, int(round(h * scale))), interpolation=cv.INTER_AREA)
+        new_h = int(round(h * scale))
+        return cv.resize(frame, (self._width, new_h), interpolation=cv.INTER_AREA)
 
 
 class ComposePreprocessor:
@@ -56,50 +58,132 @@ class ComposePreprocessor:
         return frame
 
 
-def make_esp32_config(source: str, *, warp_enabled: bool) -> TemplateMatchConfig:
-    src = source.lower()
+def _filter_kwargs_for_dataclass(cls, kwargs: dict) -> dict:
+    """Keep only kwargs that actually exist in the dataclass."""
+    allowed = {f.name for f in fields(cls)}
+    return {k: v for k, v in kwargs.items() if k in allowed}
 
-    # Without board warp we still need small scales because the board may occupy
-    # only part of the full image.
+
+def _get_warp_enabled(args) -> bool:
+    """
+    Support both CLI styles:
+    - old style:  --warp-board
+    - new style:  --disable-board-warp
+    """
+    if hasattr(args, "disable_board_warp"):
+        return not bool(args.disable_board_warp)
+    if hasattr(args, "warp_board"):
+        return bool(args.warp_board)
+    return False
+
+
+def _get_matcher_profile(args) -> str:
+    if hasattr(args, "matcher_profile") and args.matcher_profile:
+        return str(args.matcher_profile).lower()
+    return "balanced"
+
+
+def _make_template_cfg(**kwargs) -> TemplateMatchConfig:
+    return TemplateMatchConfig(**_filter_kwargs_for_dataclass(TemplateMatchConfig, kwargs))
+
+
+def _make_board_warp_cfg(**kwargs) -> BoardWarpConfig:
+    return BoardWarpConfig(**_filter_kwargs_for_dataclass(BoardWarpConfig, kwargs))
+
+
+def make_esp32_config(source: str, *, warp_enabled: bool, matcher_profile: str = "balanced") -> TemplateMatchConfig:
+    """
+    Build a source-aware detector config.
+
+    Principles:
+    - image/images: higher recall, more rotation tolerance
+    - video/webcam: faster and a bit stricter
+    - warp enabled: scales should be near canonical board size
+    - warp disabled: broader scales are needed
+    """
+    src = source.lower()
+    profile = matcher_profile.lower()
+
     if not warp_enabled:
         if src in ("image", "images"):
-            return TemplateMatchConfig(
+            if profile == "fast":
+                scales = (0.20, 0.26, 0.35, 0.50, 0.70)
+                threshold = 0.74
+            elif profile == "accurate":
+                scales = (0.18, 0.22, 0.26, 0.30, 0.35, 0.40, 0.50, 0.60, 0.75)
+                threshold = 0.72
+            else:  # balanced
+                scales = (0.18, 0.22, 0.26, 0.30, 0.35, 0.40, 0.50, 0.60)
+                threshold = 0.73
+
+            return _make_template_cfg(
                 label="ESP32",
-                score_threshold=0.73,
-                scales=(0.18, 0.22, 0.26, 0.30, 0.35, 0.40, 0.50, 0.60, 0.75),
+                score_threshold=threshold,
+                scales=scales,
                 nms_iou_threshold=0.25,
                 top_k=1,
                 use_edges=True,
                 edge_weight=0.35,
             )
 
-        return TemplateMatchConfig(
+        # video / webcam without warp
+        if profile == "fast":
+            scales = (0.20, 0.26, 0.35, 0.50)
+            threshold = 0.80
+        elif profile == "accurate":
+            scales = (0.18, 0.22, 0.26, 0.30, 0.35, 0.40, 0.50)
+            threshold = 0.77
+        else:  # balanced
+            scales = (0.18, 0.22, 0.26, 0.30, 0.35, 0.40, 0.50)
+            threshold = 0.78
+
+        return _make_template_cfg(
             label="ESP32",
-            score_threshold=0.78,
-            scales=(0.18, 0.22, 0.26, 0.30, 0.35, 0.40, 0.50),
+            score_threshold=threshold,
+            scales=scales,
             nms_iou_threshold=0.20,
             top_k=1,
             use_edges=True,
             edge_weight=0.30,
         )
 
-    # With board warp enabled the search can focus on template scales near the
-    # canonical board size. This is both more accurate and faster.
+    # warp enabled
     if src in ("image", "images"):
-        return TemplateMatchConfig(
+        if profile == "fast":
+            scales = (0.75, 0.90, 1.05, 1.20)
+            threshold = 0.68
+        elif profile == "accurate":
+            scales = (0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25)
+            threshold = 0.65
+        else:  # balanced
+            scales = (0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25)
+            threshold = 0.66
+
+        return _make_template_cfg(
             label="ESP32",
-            score_threshold=0.66,
-            scales=(0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25),
+            score_threshold=threshold,
+            scales=scales,
             nms_iou_threshold=0.25,
             top_k=1,
             use_edges=True,
             edge_weight=0.35,
         )
 
-    return TemplateMatchConfig(
+    # video / webcam with warp
+    if profile == "fast":
+        scales = (0.85, 1.00, 1.15)
+        threshold = 0.72
+    elif profile == "accurate":
+        scales = (0.75, 0.85, 0.95, 1.05, 1.15)
+        threshold = 0.68
+    else:  # balanced
+        scales = (0.75, 0.85, 0.95, 1.05, 1.15)
+        threshold = 0.70
+
+    return _make_template_cfg(
         label="ESP32",
-        score_threshold=0.70,
-        scales=(0.75, 0.85, 0.95, 1.05, 1.15),
+        score_threshold=threshold,
+        scales=scales,
         nms_iou_threshold=0.20,
         top_k=1,
         use_edges=True,
@@ -111,7 +195,13 @@ def build_source(args):
     src = args.source.lower()
 
     if src == "webcam":
-        return WebcamSource(WebcamConfig(index=args.camera_index, width=args.width, height=args.height))
+        return WebcamSource(
+            WebcamConfig(
+                index=args.camera_index,
+                width=args.width,
+                height=args.height,
+            )
+        )
 
     if src == "video":
         if args.video_path is None:
@@ -134,17 +224,26 @@ def build_source(args):
     if src == "images":
         if args.images_dir is None:
             raise ValueError("--images-dir is required when --source images")
-        return ImageFolderSource(ImageFolderConfig(directory=args.images_dir, loop=args.loop, recursive=args.recursive))
+        return ImageFolderSource(
+            ImageFolderConfig(
+                directory=args.images_dir,
+                loop=args.loop,
+                recursive=args.recursive,
+            )
+        )
 
     raise ValueError(f"Unsupported source: {args.source}")
 
 
 def _augment_templates_for_source(templates: list[np.ndarray], source: str) -> list[np.ndarray]:
+    """
+    For offline image tuning we want stronger rotation tolerance.
+    For webcam/video we keep templates smaller for speed.
+    """
     src = source.lower()
     if src not in ("image", "images"):
         return templates
 
-    # For offline image tuning we want strong rotation tolerance.
     augmented: list[np.ndarray] = []
     for t in templates:
         augmented.append(t)
@@ -159,37 +258,50 @@ def main() -> None:
     setup_logging(args.logging)
     LOGGER.info("App starting with args=%s", vars(args))
 
+    warp_enabled = _get_warp_enabled(args)
+    matcher_profile = _get_matcher_profile(args)
+
     template_dir = Path("assets/templates/esp32_module")
     templates = load_templates(template_dir)
     templates = _augment_templates_for_source(templates, args.source)
 
-    detector = TemplateMatcher(
-        templates,
-        make_esp32_config(args.source, warp_enabled=bool(args.warp_board)),
+    detector_cfg = make_esp32_config(
+        args.source,
+        warp_enabled=warp_enabled,
+        matcher_profile=matcher_profile,
+    )
+    detector = TemplateMatcher(templates, detector_cfg)
+
+    LOGGER.info(
+        "Loaded detector for %s from %s (templates=%d, warp_enabled=%s, profile=%s)",
+        detector_cfg.label,
+        template_dir,
+        len(templates),
+        warp_enabled,
+        matcher_profile,
     )
 
     steps: list[object] = []
+
     if args.proc_resize_width is not None:
         steps.append(ResizePreprocessor(args.proc_resize_width))
 
-    if args.warp_board:
+    if warp_enabled:
         steps.append(
             BoardWarpPreprocessor(
-                BoardWarpConfig(
+                _make_board_warp_cfg(
                     output_size=(480, 960),
                     canny_t1=40,
                     canny_t2=140,
                     min_area_ratio=0.08,
                     approx_eps_ratio=0.02,
-                    blur_ksize=5,
-                    morph_kernel=5,
                 )
             )
         )
 
-    pre = ComposePreprocessor(steps) if steps else None
+    preprocessor = ComposePreprocessor(steps) if steps else None
     source = build_source(args)
-    pipeline = Pipeline(detector, preprocessor=pre)
+    pipeline = Pipeline(detector, preprocessor=preprocessor)
 
     pipeline.run(
         source,
