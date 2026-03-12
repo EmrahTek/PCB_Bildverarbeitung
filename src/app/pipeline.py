@@ -45,7 +45,6 @@ Designing testable pipelines (search terms):
 
 """
 
-# src/app/pipeline.py
 from __future__ import annotations
 
 import logging
