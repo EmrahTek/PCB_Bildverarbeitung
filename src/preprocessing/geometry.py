@@ -58,111 +58,193 @@ import numpy as np
 
 @dataclass(frozen=True)
 class BoardWarpConfig:
-    output_size: tuple[int, int] = (800, 600)
-    canny_t1: int = 50
-    canny_t2: int = 150
-    min_area_ratio: float = 0.10
+    """Configuration for board detection and perspective normalization."""
+
+    # Portrait canonical view is much more suitable for the FireBeetle board.
+    output_size: tuple[int, int] = (480, 960)  # (width, height)
+    canny_t1: int = 40
+    canny_t2: int = 140
+    min_area_ratio: float = 0.08
     approx_eps_ratio: float = 0.02
     blur_ksize: int = 5
-    morph_ksize: int = 5
+    morph_kernel: int = 5
+    aspect_ratio_min: float = 1.20  # long_side / short_side
+    aspect_ratio_max: float = 6.00
 
 
-@dataclass(frozen=True)
-class BoardLocalization:
-    warped: np.ndarray
-    h: np.ndarray
-    h_inv: np.ndarray
-    quad: np.ndarray
-    reused: bool = False
+def _ensure_gray(img: np.ndarray) -> np.ndarray:
+    if img.ndim == 2:
+        gray = img
+    elif img.ndim == 3 and img.shape[2] == 3:
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    else:
+        raise ValueError(f"Unsupported image shape: {img.shape}")
+
+    if gray.dtype != np.uint8:
+        gray = cv.normalize(gray, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+    return gray
 
 
-class BoardLocalizer:
-    """Cache board localization and only redetect every N frames."""
+def _segment_intersection(a1: np.ndarray, a2: np.ndarray, b1: np.ndarray, b2: np.ndarray) -> bool:
+    def orient(p: np.ndarray, q: np.ndarray, r: np.ndarray) -> float:
+        return float((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]))
 
-    def __init__(self, cfg: BoardWarpConfig, *, enabled: bool = True, redetect_interval: int = 5) -> None:
-        self._cfg = cfg
-        self._enabled = enabled
-        self._redetect_interval = max(1, redetect_interval)
-        self._cached: BoardLocalization | None = None
+    o1 = orient(a1, a2, b1)
+    o2 = orient(a1, a2, b2)
+    o3 = orient(b1, b2, a1)
+    o4 = orient(b1, b2, a2)
+    return (o1 * o2 < 0.0) and (o3 * o4 < 0.0)
 
-    def localize(self, frame: np.ndarray, frame_id: int) -> BoardLocalization | None:
-        if not self._enabled:
-            return None
-        if self._cached is not None and frame_id % self._redetect_interval != 0:
-            warped = cv.warpPerspective(frame, self._cached.h, self._cfg.output_size)
-            return BoardLocalization(
-                warped=warped,
-                h=self._cached.h,
-                h_inv=self._cached.h_inv,
-                quad=self._cached.quad,
-                reused=True,
-            )
 
-        warped, h, quad = warp_board(frame, self._cfg)
-        if warped is None or h is None or quad is None:
-            return None
-        h_inv = np.linalg.inv(h)
-        self._cached = BoardLocalization(warped=warped, h=h, h_inv=h_inv, quad=quad, reused=False)
-        return self._cached
+def _self_intersects(pts: np.ndarray) -> bool:
+    pts = pts.reshape(4, 2).astype(np.float32)
+    return _segment_intersection(pts[0], pts[1], pts[2], pts[3]) or _segment_intersection(pts[1], pts[2], pts[3], pts[0])
+
+
+def _is_convex_quad(pts: np.ndarray) -> bool:
+    pts_i = pts.reshape(-1, 1, 2).astype(np.int32)
+    return bool(cv.isContourConvex(pts_i))
 
 
 def order_quad_points(pts: np.ndarray) -> np.ndarray:
-    """Order four contour points as TL, TR, BR, BL."""
+    """
+    Order 4 points as top-left, top-right, bottom-right, bottom-left.
+
+    This version is intentionally more robust than the classic sum/diff trick.
+    The old sum/diff method can break on tall, symmetric rectangles.
+    """
     pts = pts.reshape(4, 2).astype(np.float32)
-    s = pts.sum(axis=1)
-    d = np.diff(pts, axis=1).reshape(-1)
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-    tr = pts[np.argmin(d)]
-    bl = pts[np.argmax(d)]
-    return np.array([tl, tr, br, bl], dtype=np.float32)
+
+    # Split into top and bottom pairs by y coordinate.
+    by_y = pts[np.argsort(pts[:, 1])]
+    top = by_y[:2]
+    bottom = by_y[2:]
+
+    top = top[np.argsort(top[:, 0])]
+    bottom = bottom[np.argsort(bottom[:, 0])]
+
+    tl, tr = top[0], top[1]
+    bl, br = bottom[0], bottom[1]
+    ordered = np.array([tl, tr, br, bl], dtype=np.float32)
+
+    # Fallback to a centroid-angle strategy if the simple ordering is invalid.
+    if _self_intersects(ordered) or not _is_convex_quad(ordered):
+        center = pts.mean(axis=0)
+        angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
+        idx = np.argsort(angles)
+        cyc = pts[idx]
+        start = int(np.argmin(cyc.sum(axis=1)))
+        cyc = np.roll(cyc, -start, axis=0)
+
+        # Ensure clockwise TL, TR, BR, BL.
+        if cyc[1, 1] > cyc[-1, 1]:
+            cyc = np.array([cyc[0], cyc[-1], cyc[-2], cyc[-3]], dtype=np.float32)
+        ordered = cyc.astype(np.float32)
+
+    return ordered
+
+
+def _quad_side_lengths(quad: np.ndarray) -> tuple[float, float, float, float]:
+    tl, tr, br, bl = quad
+    top = float(np.linalg.norm(tr - tl))
+    right = float(np.linalg.norm(br - tr))
+    bottom = float(np.linalg.norm(br - bl))
+    left = float(np.linalg.norm(bl - tl))
+    return top, right, bottom, left
+
+
+def _valid_aspect_ratio(quad: np.ndarray, cfg: BoardWarpConfig) -> bool:
+    top, right, bottom, left = _quad_side_lengths(quad)
+    w = max(1.0, 0.5 * (top + bottom))
+    h = max(1.0, 0.5 * (left + right))
+    long_side = max(w, h)
+    short_side = min(w, h)
+    ratio = long_side / short_side
+    return cfg.aspect_ratio_min <= ratio <= cfg.aspect_ratio_max
+
+
+def _candidate_quad_from_contour(cnt: np.ndarray, cfg: BoardWarpConfig) -> np.ndarray:
+    peri = cv.arcLength(cnt, True)
+    approx = cv.approxPolyDP(cnt, cfg.approx_eps_ratio * peri, True)
+
+    if len(approx) == 4:
+        return approx.reshape(4, 2).astype(np.float32)
+
+    rect = cv.minAreaRect(cnt)
+    box = cv.boxPoints(rect)
+    return box.reshape(4, 2).astype(np.float32)
 
 
 def find_board_quad(gray: np.ndarray, cfg: BoardWarpConfig) -> np.ndarray | None:
-    """Find the largest four-corner contour that looks like the PCB board."""
-    k = max(3, int(cfg.blur_ksize))
-    if k % 2 == 0:
-        k += 1
-    blur = cv.GaussianBlur(gray, (k, k), 0)
+    """Find the most plausible rectangular PCB candidate in the frame."""
+    gray = _ensure_gray(gray)
+    blur = cv.GaussianBlur(gray, (cfg.blur_ksize, cfg.blur_ksize), 0)
+
     edges = cv.Canny(blur, cfg.canny_t1, cfg.canny_t2)
-    kernel = np.ones((max(3, cfg.morph_ksize), max(3, cfg.morph_ksize)), np.uint8)
-    edges = cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (cfg.morph_kernel, cfg.morph_kernel))
+    edges = cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel, iterations=2)
+    edges = cv.dilate(edges, kernel, iterations=1)
 
     contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
 
     h, w = gray.shape[:2]
-    min_area = cfg.min_area_ratio * float(h * w)
-    best: np.ndarray | None = None
-    best_area = 0.0
+    frame_area = float(h * w)
+    min_area = cfg.min_area_ratio * frame_area
 
-    for contour in contours:
-        area = cv.contourArea(contour)
+    best_quad: np.ndarray | None = None
+    best_score = -1.0
+
+    for cnt in contours:
+        area = float(cv.contourArea(cnt))
         if area < min_area:
             continue
-        perimeter = cv.arcLength(contour, True)
-        approx = cv.approxPolyDP(contour, cfg.approx_eps_ratio * perimeter, True)
-        if len(approx) != 4:
+
+        quad = order_quad_points(_candidate_quad_from_contour(cnt, cfg))
+        quad_area = abs(float(cv.contourArea(quad.reshape(-1, 1, 2))))
+        if quad_area <= 1.0:
             continue
-        if area > best_area:
-            best = approx
-            best_area = area
 
-    if best is None:
-        return None
-    return order_quad_points(best)
+        if _self_intersects(quad) or not _is_convex_quad(quad):
+            continue
+
+        if not _valid_aspect_ratio(quad, cfg):
+            continue
+
+        rect_fill = area / quad_area
+        score = area * rect_fill
+        if score > best_score:
+            best_score = score
+            best_quad = quad
+
+    return best_quad
 
 
-def warp_board(bgr: np.ndarray, cfg: BoardWarpConfig) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-    """Detect the PCB board and warp it into a canonical top view."""
-    gray = cv.cvtColor(bgr, cv.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+def warp_board(bgr: np.ndarray, cfg: BoardWarpConfig) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
+    """
+    Detect board and warp it to a portrait canonical view.
+
+    Returns:
+        (warped_bgr, H) or (None, None) if no valid board is found.
+    """
+    gray = _ensure_gray(bgr)
     quad = find_board_quad(gray, cfg)
     if quad is None:
-        return None, None, None
+        return None, None
 
     out_w, out_h = cfg.output_size
-    dst = np.array([[0, 0], [out_w, 0], [out_w, out_h], [0, out_h]], dtype=np.float32)
-    h = cv.getPerspectiveTransform(quad, dst)
-    warped = cv.warpPerspective(bgr, h, (out_w, out_h))
-    return warped, h, quad
+    dst = np.array(
+        [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
+        dtype=np.float32,
+    )
+
+    H = cv.getPerspectiveTransform(quad, dst)
+    warped = cv.warpPerspective(bgr, H, (out_w, out_h))
+
+    # Guarantee portrait output. This prevents the board from being stretched into
+    # a landscape canvas, which hurt ESP32 matching in your previous runs.
+    if warped.shape[1] > warped.shape[0]:
+        warped = cv.rotate(warped, cv.ROTATE_90_CLOCKWISE)
+
+    return warped, H
