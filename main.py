@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-
-import cv2 as cv
-import numpy as np
+from typing import Any
 
 from src.app.cli import parse_args
 from src.app.pipeline import Pipeline
@@ -12,215 +10,284 @@ from src.logging.setup import setup_logging
 
 from src.camera_input.webcam import WebcamSource, WebcamConfig
 from src.camera_input.video_file import VideoFileSource, VideoFileConfig
-from src.camera_input.image import ImageFileSource, ImageFileConfig, ImageFolderSource, ImageFolderConfig
+from src.camera_input.image import (
+    ImageFileSource,
+    ImageFileConfig,
+    ImageFolderSource,
+    ImageFolderConfig,
+)
 
 from src.utils.io import load_templates
 from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
-from src.detection_logic.board_first_esp32 import BoardFirstEsp32Config, BoardFirstEsp32Detector
-from src.preprocessing.geometry import BoardWarpConfig
+from src.detection_logic.board_detector import BoardFirstHybridDetector
 
 LOGGER = logging.getLogger(__name__)
 
 
-class ResizePreprocessor:
-    """Resize frames before detection to reduce load and improve FPS."""
-
-    def __init__(self, width: int) -> None:
-        self._width = int(width)
-
-    def process(self, frame: np.ndarray) -> np.ndarray:
-        h, w = frame.shape[:2]
-        if w <= self._width:
-            return frame
-        scale = self._width / w
-        new_w = self._width
-        new_h = int(round(h * scale))
-        return cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
+# ---------------------------------------------------------------------
+# generic helpers
+# ---------------------------------------------------------------------
+def _filtered_kwargs(data: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in data.items() if v is not None}
 
 
-class ComposePreprocessor:
-    def __init__(self, steps: list[object]) -> None:
-        self._steps = steps
+def _try_make_config(cls: type, candidates: list[dict[str, Any]]) -> Any:
+    """
+    Try several constructor keyword variants.
+    This makes main.py more robust against small config class differences.
+    """
+    last_error: Exception | None = None
 
-    def process(self, frame: np.ndarray) -> np.ndarray:
-        for s in self._steps:
-            frame = s.process(frame)
-        return frame
+    for kwargs in candidates:
+        try:
+            return cls(**_filtered_kwargs(kwargs))
+        except TypeError as exc:
+            last_error = exc
+
+    # last fallback: try default constructor + setattr
+    try:
+        obj = cls()
+        for kwargs in candidates:
+            for key, value in _filtered_kwargs(kwargs).items():
+                if hasattr(obj, key):
+                    setattr(obj, key, value)
+        return obj
+    except Exception as exc:
+        last_error = exc
+
+    raise RuntimeError(f"Could not construct config for {cls.__name__}: {last_error}")
+
+
+# ---------------------------------------------------------------------
+# source builders
+# ---------------------------------------------------------------------
+def _build_webcam_source(args) -> WebcamSource:
+    config = _try_make_config(
+        WebcamConfig,
+        candidates=[
+            {
+                "index": args.camera_index,
+                "width": args.width,
+                "height": args.height,
+                "fps": args.camera_fps,
+            },
+            {
+                "camera_index": args.camera_index,
+                "width": args.width,
+                "height": args.height,
+                "fps": args.camera_fps,
+            },
+        ],
+    )
+    return WebcamSource(config)
+
+
+def _build_video_source(args) -> VideoFileSource:
+    video_path = Path(args.video_path)
+
+    config = _try_make_config(
+        VideoFileConfig,
+        candidates=[
+            {
+                "path": video_path,
+                "resize_width": args.video_resize_width,
+                "resize_height": args.video_resize_height,
+                "stride": args.video_stride,
+                "loop": args.loop,
+            },
+            {
+                "video_path": video_path,
+                "resize_width": args.video_resize_width,
+                "resize_height": args.video_resize_height,
+                "stride": args.video_stride,
+                "loop": args.loop,
+            },
+        ],
+    )
+    return VideoFileSource(config)
+
+
+def _build_image_file_source(args) -> ImageFileSource:
+    image_path = Path(args.image_path)
+
+    config = _try_make_config(
+        ImageFileConfig,
+        candidates=[
+            {"path": image_path},
+            {"image_path": image_path},
+            {"file_path": image_path},
+        ],
+    )
+    return ImageFileSource(config)
+
+
+def _build_image_folder_source(args) -> ImageFolderSource:
+    images_dir = Path(args.images_dir)
+
+    config = _try_make_config(
+        ImageFolderConfig,
+        candidates=[
+            {
+                "directory": images_dir,
+                "recursive": args.recursive,
+                "loop": args.loop,
+            },
+            {
+                "path": images_dir,
+                "recursive": args.recursive,
+                "loop": args.loop,
+            },
+            {
+                "folder_path": images_dir,
+                "recursive": args.recursive,
+                "loop": args.loop,
+            },
+            {
+                "images_dir": images_dir,
+                "recursive": args.recursive,
+                "loop": args.loop,
+            },
+        ],
+    )
+    return ImageFolderSource(config)
 
 
 def build_source(args):
-    src = args.source.lower()
+    if args.source == "webcam":
+        return _build_webcam_source(args)
 
-    if src == "webcam":
-        return WebcamSource(WebcamConfig(index=args.camera_index, width=args.width, height=args.height))
+    if args.source == "video":
+        if not args.video_path:
+            raise ValueError("--video-path must be provided when --source video")
+        return _build_video_source(args)
 
-    if src == "video":
-        if args.video_path is None:
-            raise ValueError("--video-path is required when --source video")
-        return VideoFileSource(VideoFileConfig(
-            path=args.video_path,
-            loop=args.loop,
-            resize_width=args.video_resize_width,
-            resize_height=args.video_resize_height,
-            stride=args.video_stride,
-        ))
+    if args.source == "image":
+        if not args.image_path:
+            raise ValueError("--image-path must be provided when --source image")
+        return _build_image_file_source(args)
 
-    if src == "image":
-        if args.image_path is None:
-            raise ValueError("--image-path is required when --source image")
-        return ImageFileSource(ImageFileConfig(path=args.image_path, loop=args.loop))
-
-    if src == "images":
-        if args.images_dir is None:
-            raise ValueError("--images-dir is required when --source images")
-        return ImageFolderSource(ImageFolderConfig(directory=args.images_dir, loop=args.loop, recursive=args.recursive))
+    if args.source == "images":
+        if not args.images_dir:
+            raise ValueError("--images-dir must be provided when --source images")
+        return _build_image_folder_source(args)
 
     raise ValueError(f"Unsupported source: {args.source}")
 
 
-def sample_templates_evenly(templates: list[np.ndarray], max_count: int) -> list[np.ndarray]:
-    if len(templates) <= max_count:
-        return templates
-    idxs = np.linspace(0, len(templates) - 1, num=max_count, dtype=int)
-    return [templates[i] for i in idxs]
+# ---------------------------------------------------------------------
+# matcher / detector builders
+# ---------------------------------------------------------------------
+def _make_template_config(args) -> TemplateMatchConfig:
+    """
+    Build TemplateMatchConfig in a defensive way.
+    We only set attributes if they exist in your local class.
+    """
+    cfg = TemplateMatchConfig()
+
+    is_live = args.source in {"webcam", "video"}
+
+    common_updates = {
+        "profile": getattr(args, "matcher_profile", "balanced"),
+        "use_clahe": True,
+        "use_edges": True,
+        "score_threshold": 0.66 if not is_live else 0.68,
+        "nms_iou_threshold": 0.25,
+        "max_detections": 1,
+    }
+
+    image_updates = {
+        "scale_factors": [0.85, 0.92, 1.00, 1.08, 1.16],
+        "search_step": 1,
+    }
+
+    live_updates = {
+        "scale_factors": [0.92, 1.00, 1.08],
+        "search_step": 2,
+    }
+
+    updates = common_updates | (live_updates if is_live else image_updates)
+
+    for key, value in updates.items():
+        if hasattr(cfg, key):
+            setattr(cfg, key, value)
+
+    return cfg
 
 
-def augment_rotations(templates: list[np.ndarray], *, rotations: tuple[int, ...]) -> list[np.ndarray]:
-    out: list[np.ndarray] = []
-    for t in templates:
-        out.append(t)
-        if 90 in rotations:
-            out.append(cv.rotate(t, cv.ROTATE_90_CLOCKWISE))
-        if 180 in rotations:
-            out.append(cv.rotate(t, cv.ROTATE_180))
-        if 270 in rotations:
-            out.append(cv.rotate(t, cv.ROTATE_90_COUNTERCLOCKWISE))
-    return out
+def _load_esp32_templates(args):
+    template_dir = Path("assets/templates/esp32_module")
+    templates = load_templates(template_dir)
 
+    is_live = args.source in {"webcam", "video"}
 
-def make_esp32_in_board_config(source: str) -> TemplateMatchConfig:
-    src = source.lower()
-    if src in ("webcam", "video"):
-        return TemplateMatchConfig(
-            label="ESP32",
-            score_threshold=0.68,
-            scales=(0.75, 0.85, 0.95, 1.05, 1.15, 1.25),
-            nms_iou_threshold=0.22,
-            max_candidates_per_template=6,
-            max_detections=6,
-            top_k=1,
-            use_clahe=True,
-            blur_ksize=3,
-            local_max_kernel=5,
-        )
-    return TemplateMatchConfig(
-        label="ESP32",
-        score_threshold=0.64,
-        scales=(0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30),
-        nms_iou_threshold=0.22,
-        max_candidates_per_template=8,
-        max_detections=8,
-        top_k=1,
-        use_clahe=True,
-        blur_ksize=3,
-        local_max_kernel=5,
+    # Live mode: fewer templates -> faster and usually more stable
+    if is_live and len(templates) > 4:
+        templates = templates[:4]
+
+    LOGGER.info(
+        "Loaded ESP32 templates from %s (raw=%d, used=%d, source=%s)",
+        template_dir,
+        len(load_templates(template_dir)),
+        len(templates),
+        args.source,
     )
+    return templates
 
 
-def make_direct_fallback_config(source: str) -> TemplateMatchConfig:
-    src = source.lower()
-    if src in ("webcam", "video"):
-        return TemplateMatchConfig(
-            label="ESP32",
-            score_threshold=0.82,
-            scales=(0.18, 0.22, 0.26, 0.30),
-            nms_iou_threshold=0.20,
-            max_candidates_per_template=4,
-            max_detections=4,
-            top_k=1,
-            use_clahe=True,
-            blur_ksize=3,
-            local_max_kernel=5,
-        )
-    return TemplateMatchConfig(
-        label="ESP32",
-        score_threshold=0.78,
-        scales=(0.16, 0.20, 0.24, 0.28, 0.32, 0.40),
-        nms_iou_threshold=0.20,
-        max_candidates_per_template=4,
-        max_detections=4,
-        top_k=1,
-        use_clahe=True,
-        blur_ksize=3,
-        local_max_kernel=5,
-    )
+def build_detector(args):
+    source_mode = "live" if args.source in {"webcam", "video"} else "images"
 
+    esp32_templates = _load_esp32_templates(args)
+    esp32_config = _make_template_config(args)
+    esp32_matcher = TemplateMatcher(templates=esp32_templates, config=esp32_config)
 
-def build_detector(args) -> BoardFirstEsp32Detector:
-    source = args.source.lower()
-    esp_dir = Path("assets/templates/esp32_module")
-    esp_templates = load_templates(esp_dir)
-
-    # Keep template count under control. The 84-template full search was far too slow in your logs.
-    if source in ("webcam", "video"):
-        base = sample_templates_evenly(esp_templates, max_count=3)
-    else:
-        base = sample_templates_evenly(esp_templates, max_count=4)
-
-    # Handle board orientation after homography: 0/90/180/270 rotations.
-    esp_aug = augment_rotations(base, rotations=(90, 180, 270))
-
-    esp_in_board = TemplateMatcher(esp_aug, make_esp32_in_board_config(source))
-
-    # Optional direct fallback if board geometry misses in difficult frames.
-    direct_fallback = TemplateMatcher(base, make_direct_fallback_config(source))
-
-    board_cfg = BoardWarpConfig(output_size=(900, 460), expected_aspect_ratio=900 / 460)
-    detector = BoardFirstEsp32Detector(
-        esp32_in_board_matcher=esp_in_board,
-        cfg=BoardFirstEsp32Config(
-            board_cfg=board_cfg,
-            fallback_direct_esp32=(source in ("webcam", "video")),
-            esp32_min_score_after_warp=0.62 if source in ("image", "images") else 0.66,
-        ),
-        direct_fallback_matcher=direct_fallback,
+    detector = BoardFirstHybridDetector(
+        board_template_dir=Path("assets/templates/BoardFireBeetle"),
+        esp32_matcher=esp32_matcher,
+        source_mode=source_mode,
     )
 
     LOGGER.info(
-        "Board-first detector active: geometry/homography for BOARD, template matching for ESP32 inside warped board."
+        "Board-first detector active: geometry/homography for BOARD, "
+        "template matching for ESP32 inside warped board."
     )
-    LOGGER.info(
-        "Loaded ESP32 templates from %s (raw=%d, used_base=%d, used_augmented=%d, source=%s)",
-        esp_dir,
-        len(esp_templates),
-        len(base),
-        len(esp_aug),
-        source,
-    )
+
     return detector
 
 
+# ---------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
     setup_logging(args.logging)
+
     LOGGER.info("App starting with args=%s", vars(args))
 
-    steps = []
-    if args.proc_resize_width is not None:
-        steps.append(ResizePreprocessor(args.proc_resize_width))
-    pre = ComposePreprocessor(steps) if steps else None
-
-    detector = build_detector(args)
     source = build_source(args)
-    pipeline = Pipeline(detector, preprocessor=pre)
-    pipeline.run(
-        source,
-        debug=args.debug,
-        headless=args.headless,
-        max_frames=args.max_frames,
-        wait_ms=args.wait_ms,
+    detector = build_detector(args)
+
+    # IMPORTANT:
+    # External board warp preprocessor is intentionally disabled.
+    # BoardFirstHybridDetector handles board geometry + warp internally.
+    preprocessor = None
+
+    pipeline = Pipeline(
+        source=source,
+        detector=detector,
+        preprocessor=preprocessor,
     )
-    LOGGER.info("App finished.")
+
+    try:
+        pipeline.run(
+            headless=args.headless,
+            debug=args.debug,
+            max_frames=args.max_frames,
+            wait_ms=args.wait_ms,
+            log_every_n=args.log_every_n,
+        )
+    finally:
+        LOGGER.info("App finished.")
 
 
 if __name__ == "__main__":
