@@ -47,7 +47,6 @@ Homography / warpPerspective:
 https://docs.opencv.org/4.x/da/d6e/tutorial_py_geometric_transformations.html    
 
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -58,193 +57,168 @@ import numpy as np
 
 @dataclass(frozen=True)
 class BoardWarpConfig:
-    """Configuration for board detection and perspective normalization."""
-
-    # Portrait canonical view is much more suitable for the FireBeetle board.
-    output_size: tuple[int, int] = (480, 960)  # (width, height)
-    canny_t1: int = 40
-    canny_t2: int = 140
-    min_area_ratio: float = 0.08
-    approx_eps_ratio: float = 0.02
+    """Configuration for board localisation and perspective normalization."""
+    output_size: tuple[int, int] = (900, 460)  # close to FireBeetle board aspect ratio
     blur_ksize: int = 5
+    canny_t1: int = 40
+    canny_t2: int = 120
+    min_area_ratio: float = 0.02
+    approx_eps_ratio: float = 0.02
+    expected_aspect_ratio: float = 1.95
+    min_rectangularity: float = 0.55
     morph_kernel: int = 5
-    aspect_ratio_min: float = 1.20  # long_side / short_side
-    aspect_ratio_max: float = 6.00
 
 
-def _ensure_gray(img: np.ndarray) -> np.ndarray:
-    if img.ndim == 2:
-        gray = img
-    elif img.ndim == 3 and img.shape[2] == 3:
-        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    else:
-        raise ValueError(f"Unsupported image shape: {img.shape}")
-
-    if gray.dtype != np.uint8:
-        gray = cv.normalize(gray, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-    return gray
-
-
-def _segment_intersection(a1: np.ndarray, a2: np.ndarray, b1: np.ndarray, b2: np.ndarray) -> bool:
-    def orient(p: np.ndarray, q: np.ndarray, r: np.ndarray) -> float:
-        return float((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]))
-
-    o1 = orient(a1, a2, b1)
-    o2 = orient(a1, a2, b2)
-    o3 = orient(b1, b2, a1)
-    o4 = orient(b1, b2, a2)
-    return (o1 * o2 < 0.0) and (o3 * o4 < 0.0)
-
-
-def _self_intersects(pts: np.ndarray) -> bool:
-    pts = pts.reshape(4, 2).astype(np.float32)
-    return _segment_intersection(pts[0], pts[1], pts[2], pts[3]) or _segment_intersection(pts[1], pts[2], pts[3], pts[0])
-
-
-def _is_convex_quad(pts: np.ndarray) -> bool:
-    pts_i = pts.reshape(-1, 1, 2).astype(np.int32)
-    return bool(cv.isContourConvex(pts_i))
+@dataclass(frozen=True)
+class BoardDetectionResult:
+    quad: np.ndarray  # (4,2) float32 ordered tl,tr,br,bl
+    homography: np.ndarray
+    warped: np.ndarray
+    score: float
 
 
 def order_quad_points(pts: np.ndarray) -> np.ndarray:
-    """
-    Order 4 points as top-left, top-right, bottom-right, bottom-left.
-
-    This version is intentionally more robust than the classic sum/diff trick.
-    The old sum/diff method can break on tall, symmetric rectangles.
-    """
     pts = pts.reshape(4, 2).astype(np.float32)
-
-    # Split into top and bottom pairs by y coordinate.
-    by_y = pts[np.argsort(pts[:, 1])]
-    top = by_y[:2]
-    bottom = by_y[2:]
-
-    top = top[np.argsort(top[:, 0])]
-    bottom = bottom[np.argsort(bottom[:, 0])]
-
-    tl, tr = top[0], top[1]
-    bl, br = bottom[0], bottom[1]
-    ordered = np.array([tl, tr, br, bl], dtype=np.float32)
-
-    # Fallback to a centroid-angle strategy if the simple ordering is invalid.
-    if _self_intersects(ordered) or not _is_convex_quad(ordered):
-        center = pts.mean(axis=0)
-        angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
-        idx = np.argsort(angles)
-        cyc = pts[idx]
-        start = int(np.argmin(cyc.sum(axis=1)))
-        cyc = np.roll(cyc, -start, axis=0)
-
-        # Ensure clockwise TL, TR, BR, BL.
-        if cyc[1, 1] > cyc[-1, 1]:
-            cyc = np.array([cyc[0], cyc[-1], cyc[-2], cyc[-3]], dtype=np.float32)
-        ordered = cyc.astype(np.float32)
-
-    return ordered
+    s = pts.sum(axis=1)
+    d = np.diff(pts, axis=1).reshape(-1)
+    tl = pts[np.argmin(s)]
+    br = pts[np.argmax(s)]
+    tr = pts[np.argmin(d)]
+    bl = pts[np.argmax(d)]
+    return np.array([tl, tr, br, bl], dtype=np.float32)
 
 
-def _quad_side_lengths(quad: np.ndarray) -> tuple[float, float, float, float]:
+def _quad_aspect_ratio(quad: np.ndarray) -> float:
     tl, tr, br, bl = quad
-    top = float(np.linalg.norm(tr - tl))
-    right = float(np.linalg.norm(br - tr))
-    bottom = float(np.linalg.norm(br - bl))
-    left = float(np.linalg.norm(bl - tl))
-    return top, right, bottom, left
+    top = np.linalg.norm(tr - tl)
+    bottom = np.linalg.norm(br - bl)
+    left = np.linalg.norm(bl - tl)
+    right = np.linalg.norm(br - tr)
+    width = max(1e-6, 0.5 * (top + bottom))
+    height = max(1e-6, 0.5 * (left + right))
+    ar = width / height
+    return ar if ar >= 1.0 else 1.0 / ar
 
 
-def _valid_aspect_ratio(quad: np.ndarray, cfg: BoardWarpConfig) -> bool:
-    top, right, bottom, left = _quad_side_lengths(quad)
-    w = max(1.0, 0.5 * (top + bottom))
-    h = max(1.0, 0.5 * (left + right))
-    long_side = max(w, h)
-    short_side = min(w, h)
-    ratio = long_side / short_side
-    return cfg.aspect_ratio_min <= ratio <= cfg.aspect_ratio_max
+def _candidate_score(
+    *,
+    contour_area: float,
+    frame_area: float,
+    quad: np.ndarray,
+    cfg: BoardWarpConfig,
+) -> float:
+    xs = quad[:, 0]
+    ys = quad[:, 1]
+    box_w = float(xs.max() - xs.min())
+    box_h = float(ys.max() - ys.min())
+    box_area = max(1.0, box_w * box_h)
+    rectangularity = float(contour_area) / box_area
+    rectangularity = max(0.0, min(1.2, rectangularity))
+
+    ar = _quad_aspect_ratio(quad)
+    target = max(1.0, float(cfg.expected_aspect_ratio))
+    # log-distance around target; 1.0 means perfect match
+    aspect_penalty = abs(np.log(ar / target))
+    aspect_score = float(np.exp(-2.25 * aspect_penalty))
+
+    area_score = float(contour_area / frame_area)
+    return area_score * aspect_score * max(0.0, rectangularity)
 
 
-def _candidate_quad_from_contour(cnt: np.ndarray, cfg: BoardWarpConfig) -> np.ndarray:
-    peri = cv.arcLength(cnt, True)
-    approx = cv.approxPolyDP(cnt, cfg.approx_eps_ratio * peri, True)
-
-    if len(approx) == 4:
-        return approx.reshape(4, 2).astype(np.float32)
-
-    rect = cv.minAreaRect(cnt)
-    box = cv.boxPoints(rect)
-    return box.reshape(4, 2).astype(np.float32)
-
-
-def find_board_quad(gray: np.ndarray, cfg: BoardWarpConfig) -> np.ndarray | None:
-    """Find the most plausible rectangular PCB candidate in the frame."""
-    gray = _ensure_gray(gray)
-    blur = cv.GaussianBlur(gray, (cfg.blur_ksize, cfg.blur_ksize), 0)
-
-    edges = cv.Canny(blur, cfg.canny_t1, cfg.canny_t2)
-    kernel = cv.getStructuringElement(cv.MORPH_RECT, (cfg.morph_kernel, cfg.morph_kernel))
-    edges = cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel, iterations=2)
-    edges = cv.dilate(edges, kernel, iterations=1)
-
-    contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-
-    h, w = gray.shape[:2]
-    frame_area = float(h * w)
-    min_area = cfg.min_area_ratio * frame_area
-
-    best_quad: np.ndarray | None = None
-    best_score = -1.0
+def _quads_from_contours(
+    contours: list[np.ndarray],
+    frame_area: float,
+    cfg: BoardWarpConfig,
+) -> list[tuple[np.ndarray, float]]:
+    candidates: list[tuple[np.ndarray, float]] = []
 
     for cnt in contours:
         area = float(cv.contourArea(cnt))
-        if area < min_area:
+        if area < cfg.min_area_ratio * frame_area:
             continue
 
-        quad = order_quad_points(_candidate_quad_from_contour(cnt, cfg))
-        quad_area = abs(float(cv.contourArea(quad.reshape(-1, 1, 2))))
-        if quad_area <= 1.0:
+        peri = cv.arcLength(cnt, True)
+        approx = cv.approxPolyDP(cnt, cfg.approx_eps_ratio * peri, True)
+
+        quad: np.ndarray | None = None
+        if len(approx) == 4:
+            quad = order_quad_points(approx)
+        else:
+            rect = cv.minAreaRect(cnt)
+            box = cv.boxPoints(rect)
+            quad = order_quad_points(box)
+
+        score = _candidate_score(contour_area=area, frame_area=frame_area, quad=quad, cfg=cfg)
+        xs = quad[:, 0]
+        ys = quad[:, 1]
+        box_area = max(1.0, float((xs.max() - xs.min()) * (ys.max() - ys.min())))
+        rectangularity = area / box_area
+        if rectangularity < cfg.min_rectangularity:
             continue
+        candidates.append((quad, score))
 
-        if _self_intersects(quad) or not _is_convex_quad(quad):
-            continue
-
-        if not _valid_aspect_ratio(quad, cfg):
-            continue
-
-        rect_fill = area / quad_area
-        score = area * rect_fill
-        if score > best_score:
-            best_score = score
-            best_quad = quad
-
-    return best_quad
+    return candidates
 
 
-def warp_board(bgr: np.ndarray, cfg: BoardWarpConfig) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
-    """
-    Detect board and warp it to a portrait canonical view.
+def find_board_quad(gray: np.ndarray, cfg: BoardWarpConfig) -> np.ndarray | None:
+    """Find the best board quad using edges + dark-object segmentation."""
+    if gray.ndim != 2:
+        raise ValueError("find_board_quad expects a grayscale image.")
 
-    Returns:
-        (warped_bgr, H) or (None, None) if no valid board is found.
-    """
-    gray = _ensure_gray(bgr)
+    blur_k = max(3, int(cfg.blur_ksize) | 1)
+    gray_blur = cv.GaussianBlur(gray, (blur_k, blur_k), 0)
+    h, w = gray_blur.shape[:2]
+    frame_area = float(h * w)
+
+    candidates: list[tuple[np.ndarray, float]] = []
+
+    # Path 1: edges
+    edges = cv.Canny(gray_blur, cfg.canny_t1, cfg.canny_t2)
+    edges = cv.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+    contours_e, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    candidates.extend(_quads_from_contours(contours_e, frame_area, cfg))
+
+    # Path 2: dark object mask (board is usually dark on bright background)
+    _, mask = cv.threshold(gray_blur, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU)
+    k = max(3, int(cfg.morph_kernel) | 1)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (k, k))
+    mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, kernel, iterations=1)
+    mask = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel, iterations=1)
+    contours_m, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    candidates.extend(_quads_from_contours(contours_m, frame_area, cfg))
+
+    if not candidates:
+        return None
+
+    best_quad, _ = max(candidates, key=lambda item: item[1])
+    return best_quad.astype(np.float32)
+
+
+def detect_and_warp_board(bgr: np.ndarray, cfg: BoardWarpConfig) -> BoardDetectionResult | None:
+    """Detect the board quad and warp to a canonical output view."""
+    gray = cv.cvtColor(bgr, cv.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
     quad = find_board_quad(gray, cfg)
     if quad is None:
-        return None, None
+        return None
 
     out_w, out_h = cfg.output_size
-    dst = np.array(
-        [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
-        dtype=np.float32,
-    )
-
+    dst = np.array([[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]], dtype=np.float32)
     H = cv.getPerspectiveTransform(quad, dst)
     warped = cv.warpPerspective(bgr, H, (out_w, out_h))
 
-    # Guarantee portrait output. This prevents the board from being stretched into
-    # a landscape canvas, which hurt ESP32 matching in your previous runs.
-    if warped.shape[1] > warped.shape[0]:
-        warped = cv.rotate(warped, cv.ROTATE_90_CLOCKWISE)
+    score = _candidate_score(
+        contour_area=float(cv.contourArea(quad.reshape(-1, 1, 2).astype(np.float32))),
+        frame_area=float(gray.shape[0] * gray.shape[1]),
+        quad=quad,
+        cfg=cfg,
+    )
+    return BoardDetectionResult(quad=quad, homography=H, warped=warped, score=score)
 
-    return warped, H
+
+def warp_board(bgr: np.ndarray, cfg: BoardWarpConfig) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
+    """Backward-compatible wrapper used by older code."""
+    result = detect_and_warp_board(bgr, cfg)
+    if result is None:
+        return None, None
+    return result.warped, result.homography
+
