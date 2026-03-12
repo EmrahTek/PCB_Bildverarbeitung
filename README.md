@@ -118,3 +118,7 @@ This is expected to improve board contour detection and warp quality much more t
 ### 1) Folder with still images
 ```bash
 python main.py --source images --images-dir assets/test_images --debug --wait-ms 1500 --proc-resize-width 960
+
+python main.py --source video --video-path assets/video/Video_1.mp4 --debug --wait-ms 1 --proc-resize-width 720
+
+python main.py --source webcam --debug --wait-ms 1 --proc-resize-width 720
