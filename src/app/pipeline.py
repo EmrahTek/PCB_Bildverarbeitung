@@ -49,8 +49,9 @@ Designing testable pipelines (search terms):
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
-from typing import Protocol, Optional
+from typing import Optional, Protocol
 
 import cv2 as cv
 import numpy as np
@@ -59,7 +60,6 @@ from src.camera_input.base import FrameSource
 from src.render.fps import FPSCounter
 from src.render.overlay import draw_detections
 from src.utils.types import Detection
-import time
 
 LOGGER = logging.getLogger(__name__)
 
@@ -75,7 +75,8 @@ class PreprocessorLike(Protocol):
 
 
 class IdentityPreprocessor:
-    """Default preprocessor: returns frame unchanged."""
+    """Return the input frame unchanged."""
+
     def process(self, frame: np.ndarray) -> np.ndarray:
         return frame
 
@@ -87,9 +88,7 @@ class PipelineConfig:
 
 
 class Pipeline:
-    """
-    capture -> preprocess -> detect -> overlay -> display
-    """
+    """Main orchestration loop: source -> preprocess -> detect -> render."""
 
     def __init__(
         self,
@@ -99,7 +98,7 @@ class Pipeline:
         cfg: PipelineConfig = PipelineConfig(),
     ) -> None:
         self._detector = detector
-        self._pre = preprocessor if preprocessor is not None else IdentityPreprocessor()
+        self._preprocessor = preprocessor if preprocessor is not None else IdentityPreprocessor()
         self._cfg = cfg
         self._fps = FPSCounter(window_size=30)
 
@@ -110,78 +109,62 @@ class Pipeline:
         debug: bool = False,
         headless: bool = False,
         max_frames: int | None = None,
-        wait_ms : int=3
+        wait_ms: int = 1,
+        log_every_n: int = 30,
     ) -> None:
-        """
-        Args:
-            headless: If True, no GUI window is opened (useful for tests/CI).
-            max_frames: Stop after N frames (useful for tests and quick experiments).
-        """
         source.open()
         if not headless:
             cv.namedWindow(self._cfg.window_name, cv.WINDOW_NORMAL)
-            cv.resizeWindow(self._cfg.window_name, 960, 540)
-            cv.moveWindow(self._cfg.window_name, 50, 50)
-        LOGGER.info("Pipeline started. headless=%s debug=%s max_frames=%s", headless, debug, max_frames)
+            cv.resizeWindow(self._cfg.window_name, 1280, 720)
 
         frame_count = 0
+        LOGGER.info("Pipeline started. headless=%s debug=%s max_frames=%s", headless, debug, max_frames)
+
         try:
             while True:
                 frame, meta = source.read()
                 if frame is None or meta is None:
-                    LOGGER.info("End of stream or read failure. Exiting loop.")
+                    LOGGER.info("End of stream reached.")
                     break
 
+                proc = self._preprocessor.process(frame)
+                start = time.perf_counter()
+                detections = self._detector.detect(proc)
+                proc_ms = (time.perf_counter() - start) * 1000.0
                 fps = self._fps.tick()
 
-                # --- Preprocess ---
-                proc = self._pre.process(frame)
-
-                # --- Detect ---
-                detections = self._detector.detect(proc)
-
-                # detect sonrası
-                if debug:
-                # images/image için her frame logla (spam değil, çünkü az resim var)
-                    if meta.source.startswith("images:") or meta.source.startswith("image:"):
-                        best = max((d.score for d in detections), default=0.0)
-                        LOGGER.info("ESP32: %s | count=%d | best=%.2f | src=%s",
-                                    "GEFUNDEN" if detections else "NICHT",
-                                    len(detections), best, meta.source)
-                    # webcam/video için 1 saniyede 1
-                elif meta.frame_id % 30 == 0:
+                should_log = debug or (meta.frame_id % max(1, log_every_n) == 0)
+                if should_log:
                     best = max((d.score for d in detections), default=0.0)
-                    LOGGER.info("ESP32: %s | count=%d | best=%.2f",
-                                "GEFUNDEN" if detections else "NICHT",
-                                len(detections), best)
+                    LOGGER.info(
+                        "frame=%d source=%s count=%d best=%.3f proc_ms=%.1f fps=%.1f",
+                        meta.frame_id,
+                        meta.source,
+                        len(detections),
+                        best,
+                        proc_ms,
+                        fps,
+                    )
 
-
-                # --- Render ---
-                vis = draw_detections(proc, detections, fps=fps, debug=debug)
+                board_quad = getattr(self._detector, "last_board_quad", None)
+                vis = draw_detections(proc, detections, fps=fps, debug=debug, board_quad=board_quad)
 
                 if not headless:
                     cv.imshow(self._cfg.window_name, vis)
-
-                # wait_ms: images/video için hız kontrolü (ör. 3000ms = 3sn)
-                key = cv.waitKey(wait_ms) & 0xFF
-                if key == ord(self._cfg.exit_key):
-                    LOGGER.info("Exit key pressed (%s).", self._cfg.exit_key)
-                    break
+                    key = cv.waitKey(max(1, wait_ms)) & 0xFF
+                    if key == ord(self._cfg.exit_key):
+                        LOGGER.info("Exit key pressed: %s", self._cfg.exit_key)
+                        break
                 else:
-                # Headless modda pencere yok; yine de tempo kontrolü istiyorsak sleep kullanırız.
                     if wait_ms > 0:
                         time.sleep(wait_ms / 1000.0)
 
-                    frame_count += 1
+                frame_count += 1
                 if max_frames is not None and frame_count >= max_frames:
-                    LOGGER.info("Reached max_frames=%d. Stopping.", max_frames)
+                    LOGGER.info("Reached max_frames=%d", max_frames)
                     break
-
         finally:
             source.release()
-            # Create a resizable window and force a reasonable size/position
             if not headless:
-                cv.namedWindow(self._cfg.window_name, cv.WINDOW_NORMAL)
-                cv.resizeWindow(self._cfg.window_name, 960, 540)  # adjust if you want
-                cv.moveWindow(self._cfg.window_name, 50, 50)      # keep on primary screen
+                cv.destroyWindow(self._cfg.window_name)
             LOGGER.info("Pipeline stopped cleanly.")
