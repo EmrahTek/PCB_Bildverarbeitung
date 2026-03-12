@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-import cv2 as cv
 import numpy as np
 
 from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
@@ -45,6 +44,14 @@ class Esp32InBoardConfig:
     search_rel_h: float = 0.54
 
 
+def _bbox_w(box: BBox) -> int:
+    return int(box.x2 - box.x1)
+
+
+def _bbox_h(box: BBox) -> int:
+    return int(box.y2 - box.y1)
+
+
 class BoardDetector:
     def __init__(self, templates: Iterable[np.ndarray], cfg: BoardDetectorConfig) -> None:
         self._cfg = cfg
@@ -75,24 +82,28 @@ class BoardDetector:
 
     @staticmethod
     def crop(frame: np.ndarray, board_bbox: BBox, margin_ratio: float = 0.03) -> tuple[np.ndarray, tuple[int, int]]:
-        pad_x = int(board_bbox.w * margin_ratio)
-        pad_y = int(board_bbox.h * margin_ratio)
-        x1 = max(0, board_bbox.x - pad_x)
-        y1 = max(0, board_bbox.y - pad_y)
-        x2 = min(frame.shape[1], board_bbox.x + board_bbox.w + pad_x)
-        y2 = min(frame.shape[0], board_bbox.y + board_bbox.h + pad_y)
+        bw = _bbox_w(board_bbox)
+        bh = _bbox_h(board_bbox)
+        pad_x = int(bw * margin_ratio)
+        pad_y = int(bh * margin_ratio)
+        x1 = max(0, board_bbox.x1 - pad_x)
+        y1 = max(0, board_bbox.y1 - pad_y)
+        x2 = min(frame.shape[1], board_bbox.x2 + pad_x)
+        y2 = min(frame.shape[0], board_bbox.y2 + pad_y)
         return frame[y1:y2, x1:x2].copy(), (x1, y1)
 
     def _is_plausible_board(self, bbox: BBox, frame_w: int, frame_h: int) -> bool:
-        area_ratio = (bbox.w * bbox.h) / float(frame_w * frame_h)
+        bw = _bbox_w(bbox)
+        bh = _bbox_h(bbox)
+        area_ratio = (bw * bh) / float(frame_w * frame_h)
         if area_ratio < 0.01 or area_ratio > 0.85:
             return False
 
-        ratio = max(bbox.w, bbox.h) / max(1.0, min(bbox.w, bbox.h))
+        ratio = max(bw, bh) / max(1.0, min(bw, bh))
         if ratio < 1.35 or ratio > 6.0:
             return False
 
-        touches_many_edges = int(bbox.x <= 2) + int(bbox.y <= 2) + int(bbox.x + bbox.w >= frame_w - 2) + int(bbox.y + bbox.h >= frame_h - 2)
+        touches_many_edges = int(bbox.x1 <= 2) + int(bbox.y1 <= 2) + int(bbox.x2 >= frame_w - 2) + int(bbox.y2 >= frame_h - 2)
         if area_ratio > 0.55 and touches_many_edges >= 2:
             return False
         return True
@@ -137,13 +148,13 @@ class BoardEsp32Detector:
         board_crop, (ox, oy) = self._board.crop(frame, board_det.bbox, margin_ratio=self._esp32_cfg.board_margin_ratio)
 
         roi = self._esp32_search_roi(board_crop)
-        board_roi = board_crop[roi.y: roi.y + roi.h, roi.x: roi.x + roi.w]
+        board_roi = board_crop[roi.y1: roi.y2, roi.x1: roi.x2]
         esp_dets_local = self._esp32.detect(board_roi)
 
         translated: list[Detection] = [board_det]
         for det in esp_dets_local:
             bb = det.bbox
-            translated_bbox = BBox(ox + roi.x + bb.x, oy + roi.y + bb.y, bb.w, bb.h)
+            translated_bbox = BBox(ox + roi.x1 + bb.x1, oy + roi.y1 + bb.y1, ox + roi.x1 + bb.x2, oy + roi.y1 + bb.y2)
             if self._bbox_inside_board(translated_bbox, board_det.bbox):
                 translated.append(Detection(det.label, det.score, translated_bbox))
 
@@ -155,16 +166,12 @@ class BoardEsp32Detector:
         y = int(self._esp32_cfg.search_rel_y * h)
         rw = int(self._esp32_cfg.search_rel_w * w)
         rh = int(self._esp32_cfg.search_rel_h * h)
-        x = max(0, min(x, w - 1))
-        y = max(0, min(y, h - 1))
-        rw = max(1, min(rw, w - x))
-        rh = max(1, min(rh, h - y))
-        return BBox(x, y, rw, rh)
+        x1 = max(0, min(x, w - 1))
+        y1 = max(0, min(y, h - 1))
+        x2 = max(x1 + 1, min(x1 + rw, w))
+        y2 = max(y1 + 1, min(y1 + rh, h))
+        return BBox(x1, y1, x2, y2)
 
     @staticmethod
     def _bbox_inside_board(candidate: BBox, board: BBox) -> bool:
-        cx1, cy1 = candidate.x, candidate.y
-        cx2, cy2 = candidate.x + candidate.w, candidate.y + candidate.h
-        bx1, by1 = board.x, board.y
-        bx2, by2 = board.x + board.w, board.y + board.h
-        return cx1 >= bx1 and cy1 >= by1 and cx2 <= bx2 and cy2 <= by2
+        return candidate.x1 >= board.x1 and candidate.y1 >= board.y1 and candidate.x2 <= board.x2 and candidate.y2 <= board.y2

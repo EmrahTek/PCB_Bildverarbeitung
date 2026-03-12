@@ -40,28 +40,35 @@ def _edge_map(gray: np.ndarray) -> np.ndarray:
     return cv.Canny(gray, 70, 180)
 
 
+def _bbox_w(box: BBox) -> int:
+    return int(box.x2 - box.x1)
+
+
+def _bbox_h(box: BBox) -> int:
+    return int(box.y2 - box.y1)
+
+
 def _make_bbox(x: int, y: int, w: int, h: int) -> BBox:
-    return BBox(int(x), int(y), int(w), int(h))
+    x1 = int(x)
+    y1 = int(y)
+    x2 = int(x + w)
+    y2 = int(y + h)
+    return BBox(x1, y1, x2, y2)
 
 
 def _clip_bbox(x: int, y: int, w: int, h: int, frame_w: int, frame_h: int) -> BBox:
-    x = max(0, min(int(x), frame_w - 1))
-    y = max(0, min(int(y), frame_h - 1))
-    w = max(1, min(int(w), frame_w - x))
-    h = max(1, min(int(h), frame_h - y))
-    return _make_bbox(x, y, w, h)
+    x1 = max(0, min(int(x), frame_w - 1))
+    y1 = max(0, min(int(y), frame_h - 1))
+    x2 = max(x1 + 1, min(int(x + w), frame_w))
+    y2 = max(y1 + 1, min(int(y + h), frame_h))
+    return BBox(x1, y1, x2, y2)
 
 
 def _bbox_iou(a: BBox, b: BBox) -> float:
-    ax2 = a.x + a.w
-    ay2 = a.y + a.h
-    bx2 = b.x + b.w
-    by2 = b.y + b.h
-
-    inter_x1 = max(a.x, b.x)
-    inter_y1 = max(a.y, b.y)
-    inter_x2 = min(ax2, bx2)
-    inter_y2 = min(ay2, by2)
+    inter_x1 = max(a.x1, b.x1)
+    inter_y1 = max(a.y1, b.y1)
+    inter_x2 = min(a.x2, b.x2)
+    inter_y2 = min(a.y2, b.y2)
 
     inter_w = max(0, inter_x2 - inter_x1)
     inter_h = max(0, inter_y2 - inter_y1)
@@ -69,7 +76,9 @@ def _bbox_iou(a: BBox, b: BBox) -> float:
     if inter_area <= 0:
         return 0.0
 
-    union = a.w * a.h + b.w * b.h - inter_area
+    a_area = max(0, a.x2 - a.x1) * max(0, a.y2 - a.y1)
+    b_area = max(0, b.x2 - b.x1) * max(0, b.y2 - b.y1)
+    union = a_area + b_area - inter_area
     return inter_area / union if union > 0 else 0.0
 
 
@@ -119,8 +128,8 @@ class TemplateMatcher:
         candidates: list[Detection] = []
 
         for region_idx, roi in enumerate(search_regions):
-            roi_gray = frame_gray[roi.y: roi.y + roi.h, roi.x: roi.x + roi.w]
-            roi_edges = None if frame_edges is None else frame_edges[roi.y: roi.y + roi.h, roi.x: roi.x + roi.w]
+            roi_gray = frame_gray[roi.y1: roi.y2, roi.x1: roi.x2]
+            roi_edges = None if frame_edges is None else frame_edges[roi.y1: roi.y2, roi.x1: roi.x2]
 
             region_candidates = self._search_region(roi_gray, roi_edges, roi)
             if region_candidates:
@@ -141,17 +150,19 @@ class TemplateMatcher:
         return detections
 
     def _make_search_regions(self, frame_w: int, frame_h: int) -> list[BBox]:
-        full = _make_bbox(0, 0, frame_w, frame_h)
+        full = BBox(0, 0, int(frame_w), int(frame_h))
         if not self._cfg.allow_tracking or self._last_bbox is None:
             return [full]
 
-        pad_x = max(self._cfg.search_margin_px, int(self._last_bbox.w * self._cfg.roi_expand_ratio))
-        pad_y = max(self._cfg.search_margin_px, int(self._last_bbox.h * self._cfg.roi_expand_ratio))
+        last_w = _bbox_w(self._last_bbox)
+        last_h = _bbox_h(self._last_bbox)
+        pad_x = max(self._cfg.search_margin_px, int(last_w * self._cfg.roi_expand_ratio))
+        pad_y = max(self._cfg.search_margin_px, int(last_h * self._cfg.roi_expand_ratio))
         local = _clip_bbox(
-            x=self._last_bbox.x - pad_x,
-            y=self._last_bbox.y - pad_y,
-            w=self._last_bbox.w + 2 * pad_x,
-            h=self._last_bbox.h + 2 * pad_y,
+            x=self._last_bbox.x1 - pad_x,
+            y=self._last_bbox.y1 - pad_y,
+            w=last_w + 2 * pad_x,
+            h=last_h + 2 * pad_y,
             frame_w=frame_w,
             frame_h=frame_h,
         )
@@ -188,7 +199,7 @@ class TemplateMatcher:
                 if score < self._cfg.score_threshold:
                     continue
 
-                bbox = _make_bbox(roi_bbox.x + int(x0), roi_bbox.y + int(y0), tw, th)
+                bbox = _make_bbox(roi_bbox.x1 + int(x0), roi_bbox.y1 + int(y0), tw, th)
                 out.append(Detection(self._cfg.label, float(score), bbox))
 
         return out
