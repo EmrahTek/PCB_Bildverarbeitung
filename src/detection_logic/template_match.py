@@ -40,12 +40,16 @@ def _edge_map(gray: np.ndarray) -> np.ndarray:
     return cv.Canny(gray, 70, 180)
 
 
+def _make_bbox(x: int, y: int, w: int, h: int) -> BBox:
+    return BBox(int(x), int(y), int(w), int(h))
+
+
 def _clip_bbox(x: int, y: int, w: int, h: int, frame_w: int, frame_h: int) -> BBox:
-    x = max(0, min(x, frame_w - 1))
-    y = max(0, min(y, frame_h - 1))
-    w = max(1, min(w, frame_w - x))
-    h = max(1, min(h, frame_h - y))
-    return BBox(x=x, y=y, w=w, h=h)
+    x = max(0, min(int(x), frame_w - 1))
+    y = max(0, min(int(y), frame_h - 1))
+    w = max(1, min(int(w), frame_w - x))
+    h = max(1, min(int(h), frame_h - y))
+    return _make_bbox(x, y, w, h)
 
 
 def _bbox_iou(a: BBox, b: BBox) -> float:
@@ -85,16 +89,7 @@ def _nms(detections: list[Detection], iou_threshold: float, top_k: int) -> list[
 
 
 class TemplateMatcher:
-    """Fast enough template matcher with optional local tracking ROI.
-
-    Notes
-    -----
-    - Keeps the public API simple: ``detect(frame) -> list[Detection]``.
-    - When tracking is enabled, it first searches near the previous best bbox.
-      If that fails, it falls back to the full frame.
-    - This is generic enough for BOARD first-stage detection and can later be
-      reused for component detection inside the board ROI.
-    """
+    """Generic multi-scale template matcher with optional local ROI tracking."""
 
     def __init__(self, templates: Iterable[np.ndarray], cfg: TemplateMatchConfig) -> None:
         raw_templates = [t for t in templates if t is not None and t.size > 0]
@@ -130,7 +125,6 @@ class TemplateMatcher:
             region_candidates = self._search_region(roi_gray, roi_edges, roi)
             if region_candidates:
                 candidates.extend(region_candidates)
-                # If we got a hit in the local tracking ROI, stop early.
                 if region_idx == 0 and self._last_bbox is not None:
                     break
 
@@ -147,7 +141,7 @@ class TemplateMatcher:
         return detections
 
     def _make_search_regions(self, frame_w: int, frame_h: int) -> list[BBox]:
-        full = BBox(x=0, y=0, w=frame_w, h=frame_h)
+        full = _make_bbox(0, 0, frame_w, frame_h)
         if not self._cfg.allow_tracking or self._last_bbox is None:
             return [full]
 
@@ -188,14 +182,13 @@ class TemplateMatcher:
                     _emin, maxv_edge, _eminl, maxl_edge = cv.minMaxLoc(edge_map)
                     edge_weight = float(np.clip(self._cfg.edge_weight, 0.0, 1.0))
                     score = (1.0 - edge_weight) * float(maxv_gray) + edge_weight * float(maxv_edge)
-                    # use the better-localized map if it clearly wins
                     if maxv_edge > maxv_gray:
                         x0, y0 = maxl_edge
 
                 if score < self._cfg.score_threshold:
                     continue
 
-                bbox = BBox(x=roi_bbox.x + int(x0), y=roi_bbox.y + int(y0), w=tw, h=th)
-                out.append(Detection(label=self._cfg.label, score=float(score), bbox=bbox))
+                bbox = _make_bbox(roi_bbox.x + int(x0), roi_bbox.y + int(y0), tw, th)
+                out.append(Detection(self._cfg.label, float(score), bbox))
 
         return out

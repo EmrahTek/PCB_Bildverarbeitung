@@ -11,7 +11,7 @@ from src.app.pipeline import Pipeline
 from src.camera_input.image import ImageFileSource, ImageFileConfig, ImageFolderSource, ImageFolderConfig
 from src.camera_input.video_file import VideoFileSource, VideoFileConfig
 from src.camera_input.webcam import WebcamSource, WebcamConfig
-from src.detection_logic.board_detector import BoardDetector, BoardDetectorConfig
+from src.detection_logic.board_detector import BoardDetectorConfig, BoardEsp32Detector, Esp32InBoardConfig
 from src.logging.setup import setup_logging
 from src.utils.io import load_templates
 
@@ -19,8 +19,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ResizePreprocessor:
-    """Resize frames before detection to reduce compute cost while keeping aspect ratio."""
-
     def __init__(self, width: int) -> None:
         self._width = int(width)
 
@@ -34,8 +32,6 @@ class ResizePreprocessor:
 
 
 class ComposePreprocessor:
-    """Chain multiple preprocessors in order."""
-
     def __init__(self, steps: list[object]) -> None:
         self._steps = steps
 
@@ -83,46 +79,40 @@ def build_source(args):
     raise ValueError(f"Unsupported source: {args.source}")
 
 
-def _find_board_template_dir() -> Path:
-    candidates = [
-        Path("assets/templates/BoardFireBeetle"),
-        Path("assets/templates/board_firebeetle"),
-        Path("assets/templates/board"),
-    ]
-    for path in candidates:
-        if path.exists() and path.is_dir():
-            return path
-    raise FileNotFoundError(
-        "Board template folder not found. Expected one of: "
-        "assets/templates/BoardFireBeetle, assets/templates/board_firebeetle, assets/templates/board"
-    )
+def _find_existing_dir(candidates: list[str]) -> Path:
+    for c in candidates:
+        p = Path(c)
+        if p.exists() and p.is_dir():
+            return p
+    raise FileNotFoundError("No template directory found from candidates: " + ", ".join(candidates))
 
 
-def _sample_templates_for_live(templates: list[np.ndarray], keep: int = 6) -> list[np.ndarray]:
+def _sample_templates_for_live(templates: list[np.ndarray], keep: int = 4) -> list[np.ndarray]:
     if len(templates) <= keep:
         return templates
     idx = np.linspace(0, len(templates) - 1, keep, dtype=int)
     return [templates[i] for i in idx]
 
 
-def _augment_board_templates(templates: list[np.ndarray], *, source: str) -> list[np.ndarray]:
+def _augment_templates(templates: list[np.ndarray], *, source: str, full_rot: bool) -> list[np.ndarray]:
     src = source.lower()
-    out: list[np.ndarray] = []
-
-    if src in ("image", "images"):
+    if src in ("webcam", "video"):
         rotations = (
+            lambda x: x,
+            lambda x: cv.rotate(x, cv.ROTATE_180),
+        )
+    else:
+        rotations = (
+            lambda x: x,
+            lambda x: cv.rotate(x, cv.ROTATE_180),
+        ) if not full_rot else (
             lambda x: x,
             lambda x: cv.rotate(x, cv.ROTATE_90_CLOCKWISE),
             lambda x: cv.rotate(x, cv.ROTATE_180),
             lambda x: cv.rotate(x, cv.ROTATE_90_COUNTERCLOCKWISE),
         )
-    else:
-        # live mode: keep augmentation lighter for speed
-        rotations = (
-            lambda x: x,
-            lambda x: cv.rotate(x, cv.ROTATE_180),
-        )
 
+    out: list[np.ndarray] = []
     for t in templates:
         for fn in rotations:
             out.append(fn(t))
@@ -135,45 +125,83 @@ def make_board_config(source: str, matcher_profile: str = "balanced") -> BoardDe
 
     if src in ("webcam", "video"):
         if profile == "fast":
-            scales = (0.16, 0.20, 0.24, 0.30, 0.38, 0.48)
-            threshold = 0.62
+            scales = (0.12, 0.16, 0.20, 0.26, 0.34, 0.44)
+            threshold = 0.58
         elif profile == "accurate":
-            scales = (0.14, 0.18, 0.22, 0.26, 0.30, 0.36, 0.44, 0.54)
-            threshold = 0.60
+            scales = (0.10, 0.12, 0.16, 0.20, 0.26, 0.34, 0.44, 0.56)
+            threshold = 0.56
         else:
-            scales = (0.14, 0.18, 0.22, 0.26, 0.30, 0.36, 0.44, 0.54)
-            threshold = 0.61
+            scales = (0.10, 0.12, 0.16, 0.20, 0.26, 0.34, 0.44, 0.56)
+            threshold = 0.57
         return BoardDetectorConfig(
             label="BOARD",
             score_threshold=threshold,
             scales=scales,
             use_edges=True,
-            edge_weight=0.38,
+            edge_weight=0.40,
             allow_tracking=True,
-            search_margin_px=96,
-            roi_expand_ratio=0.22,
-            tracking_max_misses=12,
+            search_margin_px=110,
+            roi_expand_ratio=0.25,
+            tracking_max_misses=14,
         )
 
-    # image / images tuning mode
     if profile == "fast":
-        scales = (0.14, 0.18, 0.22, 0.26, 0.30, 0.36, 0.44, 0.54, 0.66)
-        threshold = 0.63
-    elif profile == "accurate":
-        scales = (0.12, 0.14, 0.16, 0.18, 0.22, 0.26, 0.30, 0.36, 0.44, 0.54, 0.66, 0.80)
+        scales = (0.12, 0.16, 0.20, 0.26, 0.34, 0.44, 0.56, 0.72)
         threshold = 0.60
+    elif profile == "accurate":
+        scales = (0.10, 0.12, 0.14, 0.16, 0.20, 0.26, 0.34, 0.44, 0.56, 0.72, 0.90)
+        threshold = 0.57
     else:
-        scales = (0.12, 0.14, 0.16, 0.18, 0.22, 0.26, 0.30, 0.36, 0.44, 0.54, 0.66, 0.80)
-        threshold = 0.61
+        scales = (0.10, 0.12, 0.14, 0.16, 0.20, 0.26, 0.34, 0.44, 0.56, 0.72, 0.90)
+        threshold = 0.58
     return BoardDetectorConfig(
         label="BOARD",
         score_threshold=threshold,
         scales=scales,
         use_edges=True,
-        edge_weight=0.35,
+        edge_weight=0.36,
         allow_tracking=False,
-        search_margin_px=80,
+        search_margin_px=90,
         roi_expand_ratio=0.20,
+    )
+
+
+def make_esp32_in_board_config(source: str, matcher_profile: str = "balanced") -> Esp32InBoardConfig:
+    src = source.lower()
+    profile = matcher_profile.lower()
+
+    if src in ("webcam", "video"):
+        if profile == "fast":
+            scales = (0.50, 0.65, 0.80, 0.95, 1.10)
+            threshold = 0.66
+        elif profile == "accurate":
+            scales = (0.45, 0.55, 0.65, 0.80, 0.95, 1.10, 1.25)
+            threshold = 0.62
+        else:
+            scales = (0.45, 0.55, 0.65, 0.80, 0.95, 1.10, 1.25)
+            threshold = 0.64
+    else:
+        if profile == "fast":
+            scales = (0.50, 0.65, 0.80, 0.95, 1.10, 1.25)
+            threshold = 0.70
+        elif profile == "accurate":
+            scales = (0.40, 0.50, 0.60, 0.75, 0.90, 1.05, 1.20, 1.35)
+            threshold = 0.66
+        else:
+            scales = (0.40, 0.50, 0.60, 0.75, 0.90, 1.05, 1.20, 1.35)
+            threshold = 0.68
+
+    return Esp32InBoardConfig(
+        label="ESP32",
+        score_threshold=threshold,
+        scales=scales,
+        use_edges=True,
+        edge_weight=0.22,
+        board_margin_ratio=0.03,
+        search_rel_x=0.34,
+        search_rel_y=0.40,
+        search_rel_w=0.60,
+        search_rel_h=0.58,
     )
 
 
@@ -182,26 +210,50 @@ def main() -> None:
     setup_logging(args.logging)
     LOGGER.info("App starting with args=%s", vars(args))
 
-    board_template_dir = _find_board_template_dir()
-    templates = load_templates(board_template_dir)
+    source_name = args.source.lower()
+    matcher_profile = (getattr(args, "matcher_profile", "balanced") or "balanced").lower()
 
-    if args.source.lower() in ("webcam", "video"):
-        templates = _sample_templates_for_live(templates, keep=6)
+    board_template_dir = _find_existing_dir([
+        "assets/templates/BoardFireBeetle",
+        "assets/templates/board_firebeetle",
+        "assets/templates/board",
+    ])
+    esp32_template_dir = _find_existing_dir([
+        "assets/templates/esp32_module",
+        "assets/templates/ESP32",
+    ])
 
-    templates = _augment_board_templates(templates, source=args.source)
+    board_templates = load_templates(board_template_dir)
+    esp32_templates = load_templates(esp32_template_dir)
 
-    matcher_profile = getattr(args, "matcher_profile", "balanced") or "balanced"
-    detector_cfg = make_board_config(args.source, matcher_profile=matcher_profile)
-    detector = BoardDetector(templates, detector_cfg)
+    live_mode = source_name in ("webcam", "video")
+    if live_mode:
+        board_templates = _sample_templates_for_live(board_templates, keep=6)
+        esp32_templates = _sample_templates_for_live(esp32_templates, keep=4)
+
+    board_templates = _augment_templates(board_templates, source=source_name, full_rot=not live_mode)
+    esp32_templates = _augment_templates(esp32_templates, source=source_name, full_rot=not live_mode)
+
+    board_cfg = make_board_config(source_name, matcher_profile=matcher_profile)
+    esp32_cfg = make_esp32_in_board_config(source_name, matcher_profile=matcher_profile)
+    detector = BoardEsp32Detector(board_templates, board_cfg, esp32_templates, esp32_cfg)
 
     LOGGER.info(
         "Loaded BOARD detector from %s (templates=%d, source=%s, profile=%s)",
         board_template_dir,
-        len(templates),
-        args.source,
+        len(board_templates),
+        source_name,
         matcher_profile,
     )
-    LOGGER.info("Board-first mode active: components are disabled until BOARD is stable.")
+    LOGGER.info(
+        "Loaded ESP32-in-board detector from %s (templates=%d, source=%s, profile=%s)",
+        esp32_template_dir,
+        len(esp32_templates),
+        source_name,
+        matcher_profile,
+    )
+    LOGGER.info("Board-first mode active: BOARD is detected first, ESP32 is searched only inside BOARD.")
+    LOGGER.info("Qt font warnings from OpenCV/Qt can be ignored on Ubuntu; they do not affect detection.")
 
     steps: list[object] = []
     if args.proc_resize_width is not None:
