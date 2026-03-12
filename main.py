@@ -20,6 +20,7 @@ from src.camera_input.image import (
 from src.utils.io import load_templates
 from src.detection_logic.template_match import TemplateMatcher, TemplateMatchConfig
 from src.detection_logic.board_detector import BoardFirstHybridDetector
+from dataclasses import fields
 
 LOGGER = logging.getLogger(__name__)
 
@@ -179,11 +180,9 @@ def build_source(args):
 # ---------------------------------------------------------------------
 def _make_template_config(args) -> TemplateMatchConfig:
     """
-    Build TemplateMatchConfig in a defensive way.
-    We only set attributes if they exist in your local class.
+    Build TemplateMatchConfig safely for frozen dataclasses.
+    Only supported constructor fields are passed.
     """
-    cfg = TemplateMatchConfig()
-
     is_live = args.source in {"webcam", "video"}
 
     common_updates = {
@@ -207,12 +206,11 @@ def _make_template_config(args) -> TemplateMatchConfig:
 
     updates = common_updates | (live_updates if is_live else image_updates)
 
-    for key, value in updates.items():
-        if hasattr(cfg, key):
-            setattr(cfg, key, value)
+    # only pass fields that really exist in TemplateMatchConfig
+    valid_field_names = {f.name for f in fields(TemplateMatchConfig)}
+    ctor_kwargs = {k: v for k, v in updates.items() if k in valid_field_names}
 
-    return cfg
-
+    return TemplateMatchConfig(**ctor_kwargs)
 
 def _load_esp32_templates(args):
     template_dir = Path("assets/templates/esp32_module")
