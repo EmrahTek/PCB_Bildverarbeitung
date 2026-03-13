@@ -1,84 +1,188 @@
-# PCB Component Detection – Recommended V2 Structure
+# PCB Component Detection – Recommendation for the Team
 
-This version is optimized for a **robust ESP32-on-FireBeetle detection pipeline** with a realistic path to **30 FPS on webcam/video**.
+## Summary recommendation
 
-## Why this version is stronger
+You can merge this branch into **`develop`**.
 
-1. **Board-first logic**
-   - The PCB is localized first.
-   - The board is warped into a canonical top view.
-   - Component detection runs on the warped board instead of the whole camera frame.
+But the correct interpretation is:
 
-2. **ROI-ready architecture**
-   - Each component can later use a fixed ROI on the normalized board.
-   - This is the biggest practical speedup for real-time detection.
+> **experimental milestone**, not production-ready detector.
 
-3. **Hybrid detector strategy**
-   - Fast primary detector: multi-scale template matching.
-   - Robust fallback: ORB feature matching.
-   - Temporal smoothing removes unstable one-frame false positives.
+This version is useful because it gives the team:
+- a working repository state,
+- a clearer board-first architecture,
+- improved component overlays,
+- first usable detections for ESP32, JST, USB and reset button on the internal dataset.
 
-4. **Webcam-friendly settings**
-   - Resize before processing.
-   - MJPG + low buffer size for webcam.
-   - Logging throttled to avoid performance loss.
+---
 
-## Recommended run commands
+## My recommendation for merging
 
-### 1) Folder with still images
+### Merge target
+- merge into **`develop`**,
+- do **not** merge into `main` yet.
+
+### Why
+Because the current branch is:
+- valuable for collaboration,
+- useful for code review,
+- good enough for internal experiments,
+- but still too fragile for final real-world claims.
+
+---
+
+## How to describe the current state to teammates
+
+Use this wording:
+
+> The current detector works best on the project’s controlled images and partially on video. It is still weak on webcam and does not generalize reliably to arbitrary cropped or internet images. The implementation should be treated as a board-specific classical CV prototype.
+
+That is technically honest and matches the logs.
+
+---
+
+## What the logs tell us
+
+### Stable / useful
+- Board detection is mostly available.
+- JST is relatively strong.
+- Reset button is often detectable.
+- ESP32 often works on the internal test set.
+- USB now appears, but is still more sensitive.
+
+### Weak
+- webcam remains unstable,
+- generalization to unseen internet images is poor,
+- hard-cropped input can break the board-first assumption,
+- ROI-based logic depends on board pose and board type consistency.
+
+---
+
+## Why webcam is worse than video
+
+This is expected for this pipeline.
+
+### Webcam adds several problems at once
+- lower effective detail on the board,
+- autofocus hunting,
+- motion blur,
+- changing exposure,
+- hand shake,
+- pose instability,
+- cluttered background.
+
+### Video often works better because
+- you likely recorded it under more stable conditions,
+- the board occupies a more consistent image area,
+- motion and focus are less chaotic,
+- you can choose better example segments.
+
+So it is normal that **video works while webcam is weak**.
+
+---
+
+## Recommendation for the course demo
+
+### Best presentation order
+1. Show **architecture**.
+2. Show **controlled image results**.
+3. Show **video demo**.
+4. Present webcam only as an experimental mode.
+
+### Do not claim
+- robust general object detection,
+- board-invariant performance,
+- internet-image robustness,
+- real-time robustness under arbitrary conditions.
+
+---
+
+## Engineering recommendation for the next iteration
+
+### 1. Stabilize the acquisition setup first
+This is the highest-value improvement.
+
+Recommended:
+- fixed camera,
+- fixed distance,
+- matte background,
+- board holder,
+- no fingers covering corners,
+- diffuse lighting,
+- board filling a larger image region.
+
+This will likely improve the system more than another small threshold tweak.
+
+### 2. Split evaluation by mode
+Evaluate separately:
+- image mode,
+- video mode,
+- webcam mode.
+
+One average number would be misleading.
+
+### 3. Keep the current architecture for now
+Do **not** throw this away yet.
+
+The board-first + ROI idea is still a good direction because:
+- it is explainable,
+- it is fast enough for a class project,
+- it matches the “one fixed PCB” use case,
+- it is easier to debug than a larger deep-learning system.
+
+### 4. Add a better fallback only later
+If needed later:
+- ORB / feature verification,
+- simple tracking / temporal smoothing,
+- YOLO only if board pose and board type variation become too high.
+
+---
+
+## Decision recommendation
+
+### Yes, merge to `develop`
+Reason:
+- your teammates can inspect and build on it,
+- the branch contains meaningful progress,
+- the current state is coherent enough to share.
+
+### No, not to `main`
+Reason:
+- webcam is still weak,
+- unseen image robustness is insufficient,
+- some detections remain setup-dependent.
+
+---
+
+## Suggested merge note
+
+You can add a short note like this in the PR or merge description:
+
+> Merge board-first ROI prototype into develop. Internal test images and some video cases work reasonably. Webcam and unseen-image robustness remain limited. Further work should focus on capture standardization, dataset expansion and per-mode evaluation.
+
+---
+
+## Suggested commit message
+
 ```bash
-python main.py --source images --images-dir assets/test_images --debug --wait-ms 1500 --proc-resize-width 960
+feat: add board-first ROI component detection prototype
 ```
 
-### 2) Single image
+Alternative:
+
 ```bash
-python main.py --source image --image-path assets/test_images/Board_1.png --debug --wait-ms 0 --proc-resize-width 960
+feat: improve board-first PCB detection and overlay visualization
 ```
 
-### 3) Video demo
-```bash
-python main.py --source video --video-path assets/video/Video_1.mp4 --debug --video-resize-width 960 --proc-resize-width 960 --matcher-profile balanced
-```
+---
 
-### 4) Fast webcam demo
-```bash
-python main.py --source webcam --camera-index 0 --width 1280 --height 720 --camera-fps 30 --debug --proc-resize-width 960 --matcher-profile fast
-```
+## Final recommendation
 
-### 5) Headless benchmark
-```bash
-python main.py --source video --video-path assets/video/Video_1.mp4 --headless --max-frames 300 --proc-resize-width 960 --matcher-profile fast
-```
+For today, the correct endpoint is:
 
-## Recommended roadmap
+- cleanly document the current limitations,
+- merge to `develop`,
+- let teammates review,
+- continue later from this milestone.
 
-### Phase A – Make ESP32 reliable
-- Calibrate the board warp.
-- Measure template scores on your current images/videos.
-- Define a board ROI for the ESP32 region.
-- Tune thresholds on real webcam data.
-
-### Phase B – Add JST / USB / Reset button
-- Add one template folder per component.
-- Add a dedicated ROI per component.
-- Tune each component independently.
-- Extend tests with positive + negative examples.
-
-### Phase C – Make it measurable
-- Add image-level metrics: precision, recall, false positives.
-- Create a deterministic evaluation script for the test set.
-- Save debug outputs for every failure case.
-
-## Core engineering recommendation
-
-For your project, I would **not** jump directly to YOLO first.
-
-I would use this progression:
-1. **Board warp + ROI-based classical CV**
-2. **Hybrid template + ORB fallback**
-3. **Only later YOLO if board and camera conditions vary too much**
-
-Why?
-- You already have template data and a classical CV structure.
-- For one fixed board, classical CV is often simpler, faster, and easier to explain in a Bildverarbeitung course.
-- 30 FPS is much more realistic once detection is restricted to warped ROIs.
+That is a strong and realistic stopping point for the day.
