@@ -36,3 +36,39 @@ get_logger(name: str) -> logging.Logger
 
 
 """
+from __future__ import annotations
+
+import logging
+import logging.config
+from pathlib import Path
+from typing import Any
+
+from src.utils.io import load_yaml
+
+
+def setup_logging(logging_config_path: str | Path, *, default_level: int = logging.INFO) -> None:
+    """Configure logging from YAML with a safe fallback."""
+    path = Path(logging_config_path)
+    if not path.exists():
+        logging.basicConfig(level=default_level, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+        logging.getLogger(__name__).warning("Logging config not found: %s", path)
+        return
+
+    try:
+        config = load_yaml(path)
+        _ensure_log_dirs(config)
+        logging.config.dictConfig(config)
+        logging.getLogger(__name__).info("Logging configured from %s", path)
+    except Exception as exc:
+        logging.basicConfig(level=default_level, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+        logging.getLogger(__name__).exception("Failed to configure logging from %s: %s", path, exc)
+
+
+def _ensure_log_dirs(config: dict[str, Any]) -> None:
+    handlers = config.get("handlers", {})
+    if not isinstance(handlers, dict):
+        return
+    for handler in handlers.values():
+        if isinstance(handler, dict) and "filename" in handler:
+            Path(str(handler["filename"])).parent.mkdir(parents=True, exist_ok=True)
+

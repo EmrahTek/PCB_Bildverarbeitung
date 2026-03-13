@@ -1,0 +1,83 @@
+paths:
+  templates_dir: assets/templates
+
+board:
+  output_size: [800, 600]
+  canny_t1: 50
+  canny_t2: 150
+  min_area_ratio: 0.10
+  approx_eps_ratio: 0.02
+  blur_ksize: 5
+  morph_ksize: 5
+  redetect_interval: 5
+  allow_full_frame_fallback: true
+
+temporal:
+  window: 5
+  min_hits: 3
+
+components:
+  - label: ESP32
+    enabled: true
+    template_subdir_candidates: [esp32_module, ESP32]
+    roi: null
+    fallback_orb: true
+    use_clahe: true
+    edge_mode: true
+    blur_ksize: 3
+    top_k: 1
+
+  - label: JST
+    enabled: false
+    template_subdir_candidates: [jst_connector]
+    roi: null
+    fallback_orb: false
+    use_clahe: true
+    edge_mode: true
+    blur_ksize: 3
+    top_k: 1
+
+  - label: USB
+    enabled: false
+    template_subdir_candidates: [usb_port]
+    roi: null
+    fallback_orb: false
+    use_clahe: true
+    edge_mode: true
+    blur_ksize: 3
+    top_k: 1
+
+  - label: RESET
+    enabled: false
+    template_subdir_candidates: [reset_button]
+    roi: null
+    fallback_orb: false
+    use_clahe: true
+    edge_mode: true
+    blur_ksize: 3
+    top_k: 1
+
+matcher_profiles:
+  fast:
+    ESP32:
+      score_threshold: 0.84
+      scales: [0.18, 0.20, 0.22, 0.25, 0.28, 0.30]
+      nms_iou_threshold: 0.20
+      max_candidates_per_scale: 20
+      max_detections: 3
+
+  balanced:
+    ESP32:
+      score_threshold: 0.80
+      scales: [0.16, 0.18, 0.20, 0.22, 0.25, 0.28, 0.30, 0.34]
+      nms_iou_threshold: 0.20
+      max_candidates_per_scale: 40
+      max_detections: 5
+
+  accurate:
+    ESP32:
+      score_threshold: 0.76
+      scales: [0.14, 0.16, 0.18, 0.20, 0.22, 0.25, 0.28, 0.30, 0.34, 0.38, 0.42]
+      nms_iou_threshold: 0.22
+      max_candidates_per_scale: 60
+      max_detections: 8

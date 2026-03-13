@@ -24,3 +24,23 @@ https://docs.python.org/3/library/abc.html
 https://docs.python.org/3/library/typing.html#typing.Protocol
 
 """
+
+# src/detection_logic/base.py
+from __future__ import annotations 
+
+from abc import ABC, abstractmethod
+import numpy as np
+
+from src.utils.types import Detection
+
+class Detector(ABC):
+    """
+    Base interface for all detectors.
+
+    A detector must implement:
+        detect(frame) -> list[Detection]
+    """
+    @abstractmethod
+    def detect(self,frame: np.ndarray) -> list[Detection]:
+        """Run detection on a single frame."""
+        raise NotImplementedError

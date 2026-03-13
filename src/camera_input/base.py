@@ -26,3 +26,35 @@ detect(image: np.ndarray) -> list[Detection]
 
 """
 
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Optional, Tuple
+
+import numpy as np
+
+from src.utils.types import FrameMeta
+
+class FrameSource(ABC):
+    """
+    Abstract frame source (webcam, video file, later: PiCamera).
+    """
+    @abstractmethod
+    def open(self) -> None:
+        """Open the source (allocate resources)."""
+        raise NotImplementedError
+    @abstractmethod
+    def read(self) -> Tuple[Optional[np.ndarray], Optional[FrameMeta]]:
+        """
+        Read one frame.
+
+        Returns:
+            (frame, meta) or (None, None) when the stream ends / fails.
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    def release(self) -> None:
+        """Release resources (close capture)."""
+        raise NotImplementedError
+
