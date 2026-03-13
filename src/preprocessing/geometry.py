@@ -58,22 +58,24 @@ import numpy as np
 @dataclass(frozen=True)
 class BoardWarpConfig:
     """Configuration for board localisation and perspective normalization."""
-    output_size: tuple[int, int] = (900, 460)  # close to FireBeetle board aspect ratio
+    output_size: tuple[int, int] = (900, 460)
     blur_ksize: int = 5
     canny_t1: int = 40
     canny_t2: int = 120
     min_area_ratio: float = 0.01
+    max_area_ratio: float = 0.35
     approx_eps_ratio: float = 0.02
     expected_aspect_ratio: float = 1.95
+    min_aspect_ratio: float = 1.45
+    max_aspect_ratio: float = 2.55
     min_rectangularity: float = 0.55
     morph_kernel: int = 5
-    max_area_ratio: float = 0.35
     border_margin: int = 6
 
 
 @dataclass(frozen=True)
 class BoardDetectionResult:
-    quad: np.ndarray  # (4,2) float32 ordered tl,tr,br,bl
+    quad: np.ndarray
     homography: np.ndarray
     warped: np.ndarray
     score: float
@@ -158,14 +160,14 @@ def _candidate_score(
     ar = _quad_aspect_ratio(quad)
     target = max(1.0, float(cfg.expected_aspect_ratio))
     aspect_penalty = abs(np.log(ar / target))
-    aspect_score = float(np.exp(-2.25 * aspect_penalty))
+    aspect_score = float(np.exp(-2.8 * aspect_penalty))
 
     area_ratio = float(contour_area / frame_area)
     size_score = _size_score(area_ratio)
 
     return (
-        0.45 * aspect_score +
-        0.35 * rectangularity +
+        0.50 * aspect_score +
+        0.30 * rectangularity +
         0.20 * size_score
     )
 
@@ -196,6 +198,10 @@ def _quads_from_contours(
             rect = cv.minAreaRect(cnt)
             box = cv.boxPoints(rect)
             quad = order_quad_points(box)
+
+        ar = _quad_aspect_ratio(quad)
+        if ar < cfg.min_aspect_ratio or ar > cfg.max_aspect_ratio:
+            continue
 
         xs = quad[:, 0]
         ys = quad[:, 1]
@@ -237,7 +243,7 @@ def find_board_quad(gray: np.ndarray, cfg: BoardWarpConfig) -> tuple[np.ndarray,
     contours_e, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     candidates.extend(_quads_from_contours(contours_e, frame_area, cfg, gray.shape))
 
-    # Path 2: dark object mask (board is usually dark on bright background)
+    # Path 2: dark object mask
     _, mask = cv.threshold(gray_blur, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU)
     k = max(3, int(cfg.morph_kernel) | 1)
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (k, k))

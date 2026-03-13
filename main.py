@@ -131,16 +131,13 @@ def augment_rotations(templates: list[np.ndarray], *, rotations: tuple[int, ...]
 
 
 def make_esp32_in_board_config(source: str) -> TemplateMatchConfig:
-    """
-    Template matching config for ESP32 detection inside the warped board.
-    """
     src = source.lower()
 
     if src in ("webcam", "video"):
         return TemplateMatchConfig(
             label="ESP32",
-            score_threshold=0.66,
-            scales=(0.72, 0.82, 0.92, 1.00, 1.08, 1.18, 1.28),
+            score_threshold=0.63,
+            scales=(0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25),
             nms_iou_threshold=0.22,
             max_candidates_per_template=6,
             max_detections=6,
@@ -152,8 +149,8 @@ def make_esp32_in_board_config(source: str) -> TemplateMatchConfig:
 
     return TemplateMatchConfig(
         label="ESP32",
-        score_threshold=0.62,
-        scales=(0.68, 0.78, 0.88, 0.98, 1.08, 1.18, 1.30),
+        score_threshold=0.60,
+        scales=(0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.40),
         nms_iou_threshold=0.22,
         max_candidates_per_template=8,
         max_detections=8,
@@ -165,19 +162,16 @@ def make_esp32_in_board_config(source: str) -> TemplateMatchConfig:
 
 
 def make_direct_fallback_config(source: str) -> TemplateMatchConfig:
-    """
-    Direct full-frame fallback config for ESP32.
-    """
     src = source.lower()
 
     if src in ("webcam", "video"):
         return TemplateMatchConfig(
             label="ESP32",
-            score_threshold=0.80,
-            scales=(0.18, 0.22, 0.26, 0.30),
-            nms_iou_threshold=0.20,
-            max_candidates_per_template=4,
-            max_detections=4,
+            score_threshold=0.70,
+            scales=(0.10, 0.14, 0.18, 0.22, 0.26, 0.30, 0.36, 0.42),
+            nms_iou_threshold=0.18,
+            max_candidates_per_template=6,
+            max_detections=6,
             top_k=1,
             use_clahe=True,
             blur_ksize=3,
@@ -186,11 +180,11 @@ def make_direct_fallback_config(source: str) -> TemplateMatchConfig:
 
     return TemplateMatchConfig(
         label="ESP32",
-        score_threshold=0.84,
-        scales=(0.16, 0.20, 0.24, 0.28, 0.32, 0.40),
-        nms_iou_threshold=0.20,
-        max_candidates_per_template=4,
-        max_detections=4,
+        score_threshold=0.68,
+        scales=(0.10, 0.14, 0.18, 0.22, 0.26, 0.30, 0.36, 0.42, 0.50),
+        nms_iou_threshold=0.18,
+        max_candidates_per_template=8,
+        max_detections=8,
         top_k=1,
         use_clahe=True,
         blur_ksize=3,
@@ -198,45 +192,87 @@ def make_direct_fallback_config(source: str) -> TemplateMatchConfig:
     )
 
 
-def build_detector(args) -> BoardFirstEsp32Detector:
-    """
-    Stable detector build:
-    use the legacy board-first detector as the main detector.
+def make_direct_board_config(source: str) -> TemplateMatchConfig:
+    src = source.lower()
 
-    Reason:
-    the hybrid detector is currently too unstable and produces false
-    board detections on window/wall regions. For this project stage,
-    the geometry-first + in-board ESP32 matcher is more reliable.
-    """
+    if src in ("webcam", "video"):
+        return TemplateMatchConfig(
+            label="BOARD",
+            score_threshold=0.58,
+            scales=(0.12, 0.16, 0.20, 0.24, 0.30, 0.36, 0.44, 0.52),
+            nms_iou_threshold=0.20,
+            max_candidates_per_template=6,
+            max_detections=4,
+            top_k=1,
+            use_clahe=True,
+            blur_ksize=3,
+            local_max_kernel=7,
+        )
+
+    return TemplateMatchConfig(
+        label="BOARD",
+        score_threshold=0.56,
+        scales=(0.12, 0.16, 0.20, 0.24, 0.30, 0.36, 0.44, 0.52, 0.62),
+        nms_iou_threshold=0.20,
+        max_candidates_per_template=8,
+        max_detections=4,
+        top_k=1,
+        use_clahe=True,
+        blur_ksize=3,
+        local_max_kernel=7,
+    )
+
+
+def build_detector(args) -> BoardFirstEsp32Detector:
     source = args.source.lower()
 
     esp_dir = Path("assets/templates/esp32_module")
+    board_dir = Path("assets/templates/board")
+
     esp_templates = load_templates(esp_dir)
     if not esp_templates:
         raise RuntimeError(f"No ESP32 templates found in: {esp_dir}")
 
+    board_templates: list[np.ndarray] = []
+    if board_dir.exists() and board_dir.is_dir():
+        try:
+            board_templates = load_templates(board_dir)
+        except Exception:
+            board_templates = []
+
     if source in ("webcam", "video"):
-        base_templates = sample_templates_evenly(esp_templates, max_count=3)
+        esp_base = sample_templates_evenly(esp_templates, max_count=4)
+        board_base = sample_templates_evenly(board_templates, max_count=4) if board_templates else []
     else:
-        base_templates = sample_templates_evenly(esp_templates, max_count=4)
+        esp_base = sample_templates_evenly(esp_templates, max_count=6)
+        board_base = sample_templates_evenly(board_templates, max_count=6) if board_templates else []
 
-    esp_augmented = augment_rotations(base_templates, rotations=(90, 180, 270))
-
+    esp_augmented = augment_rotations(esp_base, rotations=(90, 180, 270))
     esp32_in_board_matcher = TemplateMatcher(
         esp_augmented,
         make_esp32_in_board_config(source),
     )
 
     direct_fallback_matcher = TemplateMatcher(
-        base_templates,
+        esp_base,
         make_direct_fallback_config(source),
     )
+
+    direct_board_matcher = None
+    if board_base:
+        board_augmented = augment_rotations(board_base, rotations=(180,))
+        direct_board_matcher = TemplateMatcher(
+            board_augmented,
+            make_direct_board_config(source),
+        )
 
     board_cfg = BoardWarpConfig(
         output_size=(900, 460),
         expected_aspect_ratio=900 / 460,
         min_area_ratio=0.01,
         max_area_ratio=0.30,
+        min_aspect_ratio=1.45,
+        max_aspect_ratio=2.55,
         min_rectangularity=0.60,
         border_margin=8,
     )
@@ -245,22 +281,31 @@ def build_detector(args) -> BoardFirstEsp32Detector:
         esp32_in_board_matcher=esp32_in_board_matcher,
         cfg=BoardFirstEsp32Config(
             board_cfg=board_cfg,
-            fallback_direct_esp32=(source in ("webcam", "video")),
-            esp32_min_score_after_warp=0.62 if source in ("image", "images") else 0.66,
+            fallback_direct_esp32=True,
+            esp32_min_score_after_warp=0.60 if source in ("image", "images") else 0.63,
+            direct_board_min_score=0.56 if source in ("image", "images") else 0.58,
+            direct_esp32_min_score=0.68 if source in ("image", "images") else 0.70,
         ),
         direct_fallback_matcher=direct_fallback_matcher,
+        direct_board_matcher=direct_board_matcher,
     )
 
     LOGGER.info(
-        "Legacy board-first detector active: geometry/homography for BOARD, "
-        "template matching for ESP32 inside warped board."
+        "Cascade detector active: geometry board -> direct board template -> direct ESP32 fallback."
     )
     LOGGER.info(
         "Loaded ESP32 templates from %s (raw=%d, used_base=%d, used_augmented=%d, source=%s)",
         esp_dir,
         len(esp_templates),
-        len(base_templates),
+        len(esp_base),
         len(esp_augmented),
+        source,
+    )
+    LOGGER.info(
+        "Loaded BOARD templates from %s (raw=%d, used_base=%d, source=%s)",
+        board_dir,
+        len(board_templates),
+        len(board_base),
         source,
     )
 
