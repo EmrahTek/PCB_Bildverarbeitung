@@ -9,6 +9,8 @@ from src.detection_logic.base import Detector
 from src.detection_logic.template_match import TemplateMatcher
 from src.preprocessing.geometry import BoardWarpConfig, detect_and_warp_board
 from src.utils.types import BBox, Detection
+import logging
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -206,9 +208,28 @@ class BoardFirstEsp32Detector(Detector):
 
         dets = matcher.detect(crop)
         if not dets:
+            LOGGER.debug(
+                "ROI component %s: no detections roi=(%d,%d,%d,%d)",
+                label,
+                roi_box.x1,
+                roi_box.y1,
+                roi_box.x2,
+                roi_box.y2,
+            )
             return None
 
         best = max(dets, key=lambda d: d.score)
+        LOGGER.debug(
+        "ROI component %s: best_score=%.3f threshold=%.3f roi=(%d,%d,%d,%d) num_candidates=%d",
+        label,
+        best.score,
+        min_score,
+        roi_box.x1,
+        roi_box.y1,
+        roi_box.x2,
+        roi_box.y2,
+        len(dets),
+        )
         if best.score < min_score:
             return None
 
