@@ -31,8 +31,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ResizePreprocessor:
-    """Resize frames before detection to reduce load and improve FPS."""
-
     def __init__(self, width: int) -> None:
         self._width = int(width)
 
@@ -41,14 +39,10 @@ class ResizePreprocessor:
         if w <= self._width:
             return frame
         scale = self._width / w
-        new_w = self._width
-        new_h = int(round(h * scale))
-        return cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_AREA)
+        return cv.resize(frame, (self._width, int(round(h * scale))), interpolation=cv.INTER_AREA)
 
 
 class ComposePreprocessor:
-    """Apply multiple preprocessors in sequence."""
-
     def __init__(self, steps: list[object]) -> None:
         self._steps = steps
 
@@ -59,7 +53,6 @@ class ComposePreprocessor:
 
 
 def build_source(args):
-    """Create the selected input source from CLI arguments."""
     src = args.source.lower()
 
     if src == "webcam":
@@ -109,7 +102,6 @@ def build_source(args):
 
 
 def sample_templates_evenly(templates: list[np.ndarray], max_count: int) -> list[np.ndarray]:
-    """Select templates evenly across the list."""
     if len(templates) <= max_count:
         return templates
     idxs = np.linspace(0, len(templates) - 1, num=max_count, dtype=int)
@@ -117,27 +109,24 @@ def sample_templates_evenly(templates: list[np.ndarray], max_count: int) -> list
 
 
 def augment_rotations(templates: list[np.ndarray], *, rotations: tuple[int, ...]) -> list[np.ndarray]:
-    """Create rotated template variants."""
     out: list[np.ndarray] = []
-    for template in templates:
-        out.append(template)
+    for t in templates:
+        out.append(t)
         if 90 in rotations:
-            out.append(cv.rotate(template, cv.ROTATE_90_CLOCKWISE))
+            out.append(cv.rotate(t, cv.ROTATE_90_CLOCKWISE))
         if 180 in rotations:
-            out.append(cv.rotate(template, cv.ROTATE_180))
+            out.append(cv.rotate(t, cv.ROTATE_180))
         if 270 in rotations:
-            out.append(cv.rotate(template, cv.ROTATE_90_COUNTERCLOCKWISE))
+            out.append(cv.rotate(t, cv.ROTATE_90_COUNTERCLOCKWISE))
     return out
 
 
 def make_esp32_in_board_config(source: str) -> TemplateMatchConfig:
-    src = source.lower()
-
-    if src in ("webcam", "video"):
+    if source.lower() in ("webcam", "video"):
         return TemplateMatchConfig(
             label="ESP32",
-            score_threshold=0.63,
-            scales=(0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25),
+            score_threshold=0.60,
+            scales=(0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30),
             nms_iou_threshold=0.22,
             max_candidates_per_template=6,
             max_detections=6,
@@ -149,11 +138,38 @@ def make_esp32_in_board_config(source: str) -> TemplateMatchConfig:
 
     return TemplateMatchConfig(
         label="ESP32",
-        score_threshold=0.60,
-        scales=(0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.40),
+        score_threshold=0.58,
+        scales=(0.55, 0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25, 1.35),
         nms_iou_threshold=0.22,
         max_candidates_per_template=8,
         max_detections=8,
+        top_k=1,
+        use_clahe=True,
+        blur_ksize=3,
+        local_max_kernel=5,
+    )
+
+
+def make_component_in_board_config(label: str, source: str) -> TemplateMatchConfig:
+    src = source.lower()
+
+    if label == "USB_PORT":
+        score = 0.54 if src in ("image", "images") else 0.58
+        scales = (0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30)
+    elif label == "JST_CONNECTOR":
+        score = 0.50 if src in ("image", "images") else 0.54
+        scales = (0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25)
+    else:
+        score = 0.52 if src in ("image", "images") else 0.56
+        scales = (0.70, 0.80, 0.90, 1.00, 1.10, 1.20)
+
+    return TemplateMatchConfig(
+        label=label,
+        score_threshold=score,
+        scales=scales,
+        nms_iou_threshold=0.20,
+        max_candidates_per_template=6,
+        max_detections=4,
         top_k=1,
         use_clahe=True,
         blur_ksize=3,
@@ -223,31 +239,39 @@ def make_direct_board_config(source: str) -> TemplateMatchConfig:
     )
 
 
+def _build_optional_component_matcher(template_dir: Path, label: str, source: str, max_count: int) -> TemplateMatcher | None:
+    if not template_dir.exists() or not template_dir.is_dir():
+        return None
+
+    templates = load_templates(template_dir)
+    if not templates:
+        return None
+
+    base = sample_templates_evenly(templates, max_count=max_count)
+    augmented = augment_rotations(base, rotations=(180,))
+    return TemplateMatcher(augmented, make_component_in_board_config(label, source))
+
+
 def build_detector(args) -> BoardFirstEsp32Detector:
     source = args.source.lower()
 
     esp_dir = Path("assets/templates/esp32_module")
     board_dir = Path("assets/templates/board")
+    usb_dir = Path("assets/templates/usb_port")
+    jst_dir = Path("assets/templates/jst_connector")
+    reset_dir = Path("assets/templates/reset_button")
 
     esp_templates = load_templates(esp_dir)
     if not esp_templates:
         raise RuntimeError(f"No ESP32 templates found in: {esp_dir}")
 
-    board_templates: list[np.ndarray] = []
-    if board_dir.exists() and board_dir.is_dir():
-        try:
-            board_templates = load_templates(board_dir)
-        except Exception:
-            board_templates = []
+    board_templates = load_templates(board_dir) if board_dir.exists() and board_dir.is_dir() else []
 
-    if source in ("webcam", "video"):
-        esp_base = sample_templates_evenly(esp_templates, max_count=4)
-        board_base = sample_templates_evenly(board_templates, max_count=4) if board_templates else []
-    else:
-        esp_base = sample_templates_evenly(esp_templates, max_count=6)
-        board_base = sample_templates_evenly(board_templates, max_count=6) if board_templates else []
+    base_count = 4 if source in ("webcam", "video") else 6
 
+    esp_base = sample_templates_evenly(esp_templates, max_count=base_count)
     esp_augmented = augment_rotations(esp_base, rotations=(90, 180, 270))
+
     esp32_in_board_matcher = TemplateMatcher(
         esp_augmented,
         make_esp32_in_board_config(source),
@@ -259,12 +283,17 @@ def build_detector(args) -> BoardFirstEsp32Detector:
     )
 
     direct_board_matcher = None
-    if board_base:
-        board_augmented = augment_rotations(board_base, rotations=(180,))
+    board_base: list[np.ndarray] = []
+    if board_templates:
+        board_base = sample_templates_evenly(board_templates, max_count=base_count)
         direct_board_matcher = TemplateMatcher(
-            board_augmented,
+            augment_rotations(board_base, rotations=(180,)),
             make_direct_board_config(source),
         )
+
+    usb_matcher = _build_optional_component_matcher(usb_dir, "USB_PORT", source, max_count=4)
+    jst_matcher = _build_optional_component_matcher(jst_dir, "JST_CONNECTOR", source, max_count=4)
+    reset_matcher = _build_optional_component_matcher(reset_dir, "RESET_BUTTON", source, max_count=4)
 
     board_cfg = BoardWarpConfig(
         output_size=(900, 460),
@@ -282,16 +311,22 @@ def build_detector(args) -> BoardFirstEsp32Detector:
         cfg=BoardFirstEsp32Config(
             board_cfg=board_cfg,
             fallback_direct_esp32=True,
-            esp32_min_score_after_warp=0.60 if source in ("image", "images") else 0.63,
+            esp32_min_score_after_warp=0.58 if source in ("image", "images") else 0.60,
+            usb_min_score_after_warp=0.54 if source in ("image", "images") else 0.58,
+            jst_min_score_after_warp=0.52 if source in ("image", "images") else 0.56,
+            reset_min_score_after_warp=0.54 if source in ("image", "images") else 0.58,
             direct_board_min_score=0.56 if source in ("image", "images") else 0.58,
             direct_esp32_min_score=0.68 if source in ("image", "images") else 0.70,
         ),
         direct_fallback_matcher=direct_fallback_matcher,
         direct_board_matcher=direct_board_matcher,
+        usb_in_board_matcher=usb_matcher,
+        jst_in_board_matcher=jst_matcher,
+        reset_in_board_matcher=reset_matcher,
     )
 
     LOGGER.info(
-        "Cascade detector active: geometry board -> direct board template -> direct ESP32 fallback."
+        "Cascade detector active: geometry board -> direct board template -> direct ESP32 fallback -> ROI components."
     )
     LOGGER.info(
         "Loaded ESP32 templates from %s (raw=%d, used_base=%d, used_augmented=%d, source=%s)",
@@ -307,6 +342,12 @@ def build_detector(args) -> BoardFirstEsp32Detector:
         len(board_templates),
         len(board_base),
         source,
+    )
+    LOGGER.info(
+        "Optional component templates: usb=%s jst=%s reset=%s",
+        usb_matcher is not None,
+        jst_matcher is not None,
+        reset_matcher is not None,
     )
 
     return detector
