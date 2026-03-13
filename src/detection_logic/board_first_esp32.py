@@ -204,12 +204,8 @@ class BoardFirstEsp32Detector(Detector):
         roi_box = self._relative_roi_to_bbox(roi, canonical.shape)
         crop = canonical[roi_box.y1:roi_box.y2, roi_box.x1:roi_box.x2]
         if crop.size == 0:
-            return None
-
-        dets = matcher.detect(crop)
-        if not dets:
             LOGGER.debug(
-                "ROI component %s: no detections roi=(%d,%d,%d,%d)",
+                "ROI component %s: empty crop roi=(%d,%d,%d,%d)",
                 label,
                 roi_box.x1,
                 roi_box.y1,
@@ -218,18 +214,37 @@ class BoardFirstEsp32Detector(Detector):
             )
             return None
 
+        raw_best = matcher.best_raw_score(crop)
+        dets = matcher.detect(crop)
+
+        if not dets:
+            LOGGER.debug(
+                "ROI component %s: no detections raw_best=%.3f threshold=%.3f roi=(%d,%d,%d,%d)",
+                label,
+                raw_best,
+                min_score,
+                roi_box.x1,
+                roi_box.y1,
+                roi_box.x2,
+                roi_box.y2,
+            )
+            return None
+
         best = max(dets, key=lambda d: d.score)
+
         LOGGER.debug(
-        "ROI component %s: best_score=%.3f threshold=%.3f roi=(%d,%d,%d,%d) num_candidates=%d",
-        label,
-        best.score,
-        min_score,
-        roi_box.x1,
-        roi_box.y1,
-        roi_box.x2,
-        roi_box.y2,
-        len(dets),
+            "ROI component %s: best_score=%.3f raw_best=%.3f threshold=%.3f roi=(%d,%d,%d,%d) num_candidates=%d",
+            label,
+            best.score,
+            raw_best,
+            min_score,
+            roi_box.x1,
+            roi_box.y1,
+            roi_box.x2,
+            roi_box.y2,
+            len(dets),
         )
+
         if best.score < min_score:
             return None
 

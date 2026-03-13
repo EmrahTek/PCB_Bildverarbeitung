@@ -81,6 +81,23 @@ class TemplateMatcher(Detector):
         if self._cfg.top_k is not None and len(detections) > self._cfg.top_k:
             detections = sorted(detections, key=lambda d: d.score, reverse=True)[: self._cfg.top_k]
         return detections
+    
+    def best_raw_score(self, frame: np.ndarray) -> float:
+        gray = self._prepare_frame(frame)
+        h_frame, w_frame = gray.shape[:2]
+        best = -1.0
+
+        for tmpl in self._scaled_templates:
+            th, tw = tmpl.shape[:2]
+            if th > h_frame or tw > w_frame:
+                continue
+
+            resp = cv.matchTemplate(gray, tmpl, self._cfg.method)
+            current = float(resp.max())
+            if current > best:
+                best = current
+
+        return best
 
     def _prepare_frame(self, frame: np.ndarray) -> np.ndarray:
         gray = self._ensure_gray_uint8(frame)
