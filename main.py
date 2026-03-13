@@ -154,11 +154,11 @@ def make_component_in_board_config(label: str, source: str) -> TemplateMatchConf
     src = source.lower()
 
     if label == "USB_PORT":
-        score = 0.54 if src in ("image", "images") else 0.58
-        scales = (0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30)
+        score = 0.34 if src in ("image", "images") else 0.38
+        scales = (0.12, 0.16, 0.20, 0.24, 0.28, 0.34,0.40,0.48,0.56,0.66)
     elif label == "JST_CONNECTOR":
-        score = 0.50 if src in ("image", "images") else 0.54
-        scales = (0.65, 0.75, 0.85, 0.95, 1.05, 1.15, 1.25)
+        score = 0.36 if src in ("image", "images") else 0.40
+        scales = (0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20)
     else:
         score = 0.52 if src in ("image", "images") else 0.56
         scales = (0.70, 0.80, 0.90, 1.00, 1.10, 1.20)
@@ -167,8 +167,8 @@ def make_component_in_board_config(label: str, source: str) -> TemplateMatchConf
         label=label,
         score_threshold=score,
         scales=scales,
-        nms_iou_threshold=0.20,
-        max_candidates_per_template=6,
+        nms_iou_threshold=0.18,
+        max_candidates_per_template=8,
         max_detections=4,
         top_k=1,
         use_clahe=True,

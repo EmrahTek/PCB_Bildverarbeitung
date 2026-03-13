@@ -48,8 +48,8 @@ class BoardFirstEsp32Detector(Detector):
     """
 
     _ESP32_ROI = RelativeROI(0.03, 0.08, 0.50, 0.86)
-    _USB_ROI   = RelativeROI(0.76, 0.05, 0.995, 0.42)
-    _JST_ROI   = RelativeROI(0.74, 0.32, 0.995, 0.82)
+    _USB_ROI   = RelativeROI(0.72, 0.03, 1.00, 0.46)
+    _JST_ROI   = RelativeROI(0.70, 0.28, 1.00, 0.86)
     _RESET_ROI = RelativeROI(0.50, 0.10, 0.78, 0.48)
 
     def __init__(
