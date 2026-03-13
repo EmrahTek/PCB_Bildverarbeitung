@@ -29,9 +29,9 @@ class BoardFirstEsp32Config:
     reset_label: str = "RESET_BUTTON"
     fallback_direct_esp32: bool = True
     esp32_min_score_after_warp: float = 0.60
-    usb_min_score_after_warp: float = 0.54
-    jst_min_score_after_warp: float = 0.52
-    reset_min_score_after_warp: float = 0.54
+    usb_min_score_after_warp: float = 0.46
+    jst_min_score_after_warp: float = 0.44
+    reset_min_score_after_warp: float = 0.52
     direct_board_min_score: float = 0.56
     direct_esp32_min_score: float = 0.68
 
@@ -45,10 +45,10 @@ class BoardFirstEsp32Detector(Detector):
     3) direct ESP32 fallback -> estimate board from ESP32 anchor
     """
 
-    _ESP32_ROI = RelativeROI(0.04, 0.10, 0.47, 0.84)
-    _USB_ROI = RelativeROI(0.82, 0.08, 0.99, 0.40)
-    _JST_ROI = RelativeROI(0.82, 0.36, 0.99, 0.74)
-    _RESET_ROI = RelativeROI(0.54, 0.12, 0.73, 0.46)
+    _ESP32_ROI = RelativeROI(0.03, 0.08, 0.50, 0.86)
+    _USB_ROI   = RelativeROI(0.76, 0.05, 0.995, 0.42)
+    _JST_ROI   = RelativeROI(0.74, 0.32, 0.995, 0.82)
+    _RESET_ROI = RelativeROI(0.50, 0.10, 0.78, 0.48)
 
     def __init__(
         self,
@@ -70,30 +70,24 @@ class BoardFirstEsp32Detector(Detector):
         self._cfg = cfg
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
+    # 1) First try geometry board + canonical ROI components
         geom_dets = self._detect_via_geometry(frame)
-        if self._has_label(geom_dets, self._cfg.esp32_label):
+        if geom_dets:
+        # If geometry found a board, trust that board first.
+        # Do NOT run direct board fallback anymore.
+        # Only return geometry-based results.
             return geom_dets
 
+    # 2) Only if geometry failed completely, try direct board template fallback
         board_tpl_dets = self._detect_via_board_template(frame)
-        if self._has_label(board_tpl_dets, self._cfg.esp32_label):
-            return board_tpl_dets
-
-        direct_esp32_dets = self._detect_via_direct_esp32(frame)
-
-        merged = self._merge_board_and_esp32(geom_dets, direct_esp32_dets)
-        if merged:
-            return merged
-
-        merged = self._merge_board_and_esp32(board_tpl_dets, direct_esp32_dets)
-        if merged:
-            return merged
-
         if board_tpl_dets:
             return board_tpl_dets
-        if geom_dets:
-            return geom_dets
+
+    # 3) Last resort: direct ESP32 fallback
+        direct_esp32_dets = self._detect_via_direct_esp32(frame)
         if direct_esp32_dets:
             return direct_esp32_dets
+
         return []
 
     def _detect_via_geometry(self, frame: np.ndarray) -> list[Detection]:
@@ -113,6 +107,9 @@ class BoardFirstEsp32Detector(Detector):
                 map_bbox_fn=lambda box: self._map_bbox_back(box, H_inv, frame.shape),
             )
         )
+        board_score = max(0.60, min(1.0, result.score + 0.15))
+        if board_score < 0.58:
+            return []
         return detections
 
     def _detect_via_board_template(self, frame: np.ndarray) -> list[Detection]:
