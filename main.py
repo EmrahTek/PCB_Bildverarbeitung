@@ -12,6 +12,7 @@ from src.logging.setup import setup_logging
 
 from src.camera_input.webcam import WebcamSource, WebcamConfig
 from src.camera_input.video_file import VideoFileSource, VideoFileConfig
+from src.camera_input.base import FrameSource
 from src.camera_input.image import (
     ImageFileSource,
     ImageFileConfig,
@@ -26,6 +27,8 @@ from src.detection_logic.board_first_esp32 import (
     BoardFirstEsp32Detector,
 )
 from src.preprocessing.geometry import BoardWarpConfig
+from src.camera_input.base import FrameSource
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +36,8 @@ LOGGER = logging.getLogger(__name__)
 class ResizePreprocessor:
     def __init__(self, width: int) -> None:
         self._width = int(width)
+        if self._width <= 0:
+            raise ValueError("width must be positive")
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         h, w = frame.shape[:2]
@@ -52,7 +57,8 @@ class ComposePreprocessor:
         return frame
 
 
-def build_source(args):
+def build_source(args) -> FrameSource:
+    """Create the correct input source from parsed CLI arguments."""
     src = args.source.lower()
 
     if src == "webcam":
@@ -102,6 +108,8 @@ def build_source(args):
 
 
 def sample_templates_evenly(templates: list[np.ndarray], max_count: int) -> list[np.ndarray]:
+    if max_count <= 0:
+        raise ValueError("max_count must be positive")
     if len(templates) <= max_count:
         return templates
     idxs = np.linspace(0, len(templates) - 1, num=max_count, dtype=int)
