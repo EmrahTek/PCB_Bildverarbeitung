@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import cv2 as cv
 import numpy as np
@@ -78,6 +80,32 @@ def _tuple_floats(values: list[float]) -> tuple[float, ...]:
     return tuple(float(value) for value in values)
 
 
+def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge config overrides without mutating the input objects."""
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _apply_source_profile(config: dict[str, Any], source: str) -> dict[str, Any]:
+    """Apply optional source-specific overrides from the YAML configuration."""
+    profiles = config.get("source_profiles", {})
+    if not isinstance(profiles, dict):
+        raise ValueError("source_profiles must be a dictionary when present")
+    override = profiles.get(source)
+    if not isinstance(override, dict):
+        return deepcopy(config)
+    return _deep_merge_dicts(config, override)
+
+
+def _existing_directories(candidates: list[str | Path]) -> list[Path]:
+    return [Path(candidate) for candidate in candidates if Path(candidate).exists() and Path(candidate).is_dir()]
+
+
 def _component_specs_and_matchers(config: dict) -> tuple[list[ComponentSpec], dict[str, TemplateMatcher]]:
     components_cfg = config["components"]
     template_dirs_cfg = config["templates"]["component_dirs"]
@@ -118,6 +146,11 @@ def _component_specs_and_matchers(config: dict) -> tuple[list[ComponentSpec], di
                 label=label,
                 roi=RelativeROI(float(roi[0]), float(roi[1]), float(roi[2]), float(roi[3])),
                 score_threshold=float(component_cfg["score_threshold"]),
+                min_board_area_ratio=float(component_cfg.get("min_board_area_ratio", 0.0)),
+                max_board_area_ratio=float(component_cfg.get("max_board_area_ratio", 1.0)),
+                min_normalized_aspect_ratio=float(component_cfg.get("min_normalized_aspect_ratio", 1.0)),
+                max_normalized_aspect_ratio=float(component_cfg.get("max_normalized_aspect_ratio", 10.0)),
+                min_board_overlap_ratio=float(component_cfg.get("min_board_overlap_ratio", 0.85)),
             )
         )
         matchers[label] = matcher
@@ -131,15 +164,19 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     tracking_cfg = config["tracking"]
     templates_cfg = config["templates"]
 
-    board_dir = first_existing_directory(templates_cfg["board_dirs"])
     reference_boards: list[np.ndarray] = []
-    if board_dir is not None:
-        board_paths = sample_evenly(
-            [Path(path) for path in sorted(board_dir.glob("*")) if path.is_file()],
-            int(board_cfg["max_reference_templates"]),
-        )
+    board_dirs = _existing_directories(templates_cfg["board_dirs"])
+    if board_dirs:
+        board_paths: list[Path] = []
+        for board_dir in board_dirs:
+            board_paths.extend(path for path in sorted(board_dir.glob("*")) if path.is_file())
+        board_paths = sample_evenly(board_paths, min(len(board_paths), int(board_cfg["max_reference_templates"])))
         reference_boards = [load_bgr(path) for path in board_paths]
-        LOGGER.info("Loaded %d board reference images from %s", len(reference_boards), board_dir)
+        LOGGER.info(
+            "Loaded %d board reference images from %s",
+            len(reference_boards),
+            [str(path) for path in board_dirs],
+        )
     else:
         LOGGER.warning("No board reference directory found in %s", templates_cfg["board_dirs"])
 
@@ -187,7 +224,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
 def main() -> None:
     args = parse_args()
     setup_logging(args.logging)
-    config = load_yaml(args.config)
+    config = _apply_source_profile(load_yaml(args.config), args.source)
 
     runtime_cfg = config.get("runtime", {})
     detector = build_detector(config, args.source)

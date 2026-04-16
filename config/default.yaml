@@ -47,6 +47,11 @@ components:
   ESP32:
     roi: [0.02, 0.05, 0.50, 0.92]
     score_threshold: 0.32
+    min_board_area_ratio: 0.005
+    max_board_area_ratio: 0.160
+    min_normalized_aspect_ratio: 1.00
+    max_normalized_aspect_ratio: 2.30
+    min_board_overlap_ratio: 0.90
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30]
     gray_weight: 0.70
     edge_weight: 0.30
@@ -56,6 +61,11 @@ components:
   USB_PORT:
     roi: [0.70, 0.02, 1.00, 0.42]
     score_threshold: 0.47
+    min_board_area_ratio: 0.0010
+    max_board_area_ratio: 0.010
+    min_normalized_aspect_ratio: 1.00
+    max_normalized_aspect_ratio: 1.90
+    min_board_overlap_ratio: 0.90
     scales: [0.28, 0.34, 0.40, 0.48, 0.56, 0.66, 0.78, 0.90, 1.00]
     gray_weight: 0.45
     edge_weight: 0.55
@@ -65,6 +75,11 @@ components:
   JST_CONNECTOR:
     roi: [0.66, 0.24, 1.00, 0.92]
     score_threshold: 0.34
+    min_board_area_ratio: 0.0008
+    max_board_area_ratio: 0.012
+    min_normalized_aspect_ratio: 1.00
+    max_normalized_aspect_ratio: 1.90
+    min_board_overlap_ratio: 0.90
     scales: [0.40, 0.50, 0.60, 0.72, 0.84, 0.96, 1.08, 1.18]
     gray_weight: 0.45
     edge_weight: 0.55
@@ -74,9 +89,40 @@ components:
   RESET_BUTTON:
     roi: [0.44, 0.06, 0.76, 0.46]
     score_threshold: 0.50
+    min_board_area_ratio: 0.0050
+    max_board_area_ratio: 0.032
+    min_normalized_aspect_ratio: 1.00
+    max_normalized_aspect_ratio: 2.20
+    min_board_overlap_ratio: 0.90
     scales: [0.55, 0.65, 0.75, 0.85, 0.95, 1.05, 1.15]
     gray_weight: 0.50
     edge_weight: 0.50
     blur_ksize: 3
     use_clahe: true
     min_template_size: 10
+
+source_profiles:
+  webcam:
+    board:
+      max_area_ratio: 0.45
+      min_rectangularity: 0.36
+      min_aspect_ratio: 1.15
+      max_aspect_ratio: 3.00
+      search_expansion: 1.30
+      min_score: 0.38
+      min_tracked_score: 0.32
+    tracking:
+      temporal_min_hits: 3
+    components:
+      ESP32:
+        score_threshold: 0.40
+        min_board_area_ratio: 0.015
+      USB_PORT:
+        score_threshold: 0.56
+        min_board_area_ratio: 0.0025
+      JST_CONNECTOR:
+        score_threshold: 0.42
+        min_board_area_ratio: 0.0035
+      RESET_BUTTON:
+        score_threshold: 0.58
+        min_board_area_ratio: 0.010

@@ -26,6 +26,11 @@ class ComponentSpec:
     label: str
     roi: RelativeROI
     score_threshold: float
+    min_board_area_ratio: float = 0.0
+    max_board_area_ratio: float = 1.0
+    min_normalized_aspect_ratio: float = 1.0
+    max_normalized_aspect_ratio: float = 10.0
+    min_board_overlap_ratio: float = 0.85
 
 
 @dataclass(frozen=True)
@@ -99,6 +104,8 @@ class BoardFirstDetector(Detector):
             mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
             if mapped_bbox is None or mapped_bbox.area() <= 0:
                 continue
+            if not self._passes_component_sanity(spec, mapped_bbox, localization.bbox):
+                continue
 
             out.append(Detection(label=spec.label, score=detection.score, bbox=mapped_bbox))
         return out
@@ -111,3 +118,37 @@ class BoardFirstDetector(Detector):
         x2 = int(round(roi.x2f * width))
         y2 = int(round(roi.y2f * height))
         return BBox(x1, y1, x2, y2)
+
+    @staticmethod
+    def _passes_component_sanity(spec: ComponentSpec, component_bbox: BBox, board_bbox: BBox) -> bool:
+        board_area = max(1, board_bbox.area())
+        component_area_ratio = component_bbox.area() / board_area
+        if component_area_ratio < spec.min_board_area_ratio or component_area_ratio > spec.max_board_area_ratio:
+            return False
+
+        width = max(1, component_bbox.width())
+        height = max(1, component_bbox.height())
+        aspect = width / height
+        normalized_aspect = aspect if aspect >= 1.0 else 1.0 / aspect
+        if (
+            normalized_aspect < spec.min_normalized_aspect_ratio
+            or normalized_aspect > spec.max_normalized_aspect_ratio
+        ):
+            return False
+
+        overlap_ratio = BoardFirstDetector._overlap_ratio(component_bbox, board_bbox)
+        if overlap_ratio < spec.min_board_overlap_ratio:
+            return False
+
+        return True
+
+    @staticmethod
+    def _overlap_ratio(inner: BBox, outer: BBox) -> float:
+        inter_x1 = max(inner.x1, outer.x1)
+        inter_y1 = max(inner.y1, outer.y1)
+        inter_x2 = min(inner.x2, outer.x2)
+        inter_y2 = min(inner.y2, outer.y2)
+        inter_w = max(0, inter_x2 - inter_x1)
+        inter_h = max(0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+        return inter_area / max(1, inner.area())
