@@ -15,10 +15,11 @@ from src.camera_input.image import ImageFileConfig, ImageFileSource, ImageFolder
 from src.camera_input.video_file import VideoFileConfig, VideoFileSource
 from src.camera_input.webcam import WebcamConfig, WebcamSource
 from src.detection_logic.board_first import BoardFirstConfig, BoardFirstDetector, ComponentSpec, RelativeROI
+from src.detection_logic.coarse_board import BoardTemplateLocator, BoardTemplateLocatorConfig
 from src.detection_logic.template_match import TemplateMatchConfig, TemplateMatcher
 from src.logging.setup import setup_logging
 from src.preprocessing.geometry import BoardLocalizer, BoardWarpConfig
-from src.utils.io import first_existing_directory, load_bgr, load_templates, load_yaml, sample_evenly
+from src.utils.io import first_existing_directory, load_bgr, load_templates, load_yaml, rotate_image, sample_evenly
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,6 +107,49 @@ def _existing_directories(candidates: list[str | Path]) -> list[Path]:
     return [Path(candidate) for candidate in candidates if Path(candidate).exists() and Path(candidate).is_dir()]
 
 
+def _build_board_template_locator(config: dict, board_dirs: list[Path]) -> BoardTemplateLocator | None:
+    board_template_cfg = config.get("board_template", {})
+    if not bool(board_template_cfg.get("enabled", True)):
+        return None
+    if not board_dirs:
+        return None
+
+    max_templates = int(board_template_cfg.get("max_templates", 4))
+    rotations = tuple(int(turn) for turn in board_template_cfg.get("rotations", [0, 1, 2, 3]))
+
+    templates_gray: list[np.ndarray] = []
+    all_templates: list[np.ndarray] = []
+    for board_dir in board_dirs:
+        all_templates.extend(load_templates(board_dir))
+    for template in sample_evenly(all_templates, min(len(all_templates), max_templates)):
+        for turns_90 in rotations:
+            templates_gray.append(rotate_image(template, turns_90))
+
+    if not templates_gray:
+        return None
+
+    matcher = TemplateMatcher(
+        templates_gray,
+        TemplateMatchConfig(
+            label="BOARD",
+            score_threshold=float(board_template_cfg.get("score_threshold", 0.28)),
+            scales=_tuple_floats(board_template_cfg.get("scales", [0.18, 0.22, 0.26, 0.30, 0.36, 0.42, 0.50, 0.60, 0.72, 0.86, 1.0])),
+            gray_weight=float(board_template_cfg.get("gray_weight", 0.35)),
+            edge_weight=float(board_template_cfg.get("edge_weight", 0.65)),
+            use_clahe=bool(board_template_cfg.get("use_clahe", True)),
+            blur_ksize=int(board_template_cfg.get("blur_ksize", 3)),
+            min_template_size=int(board_template_cfg.get("min_template_size", 32)),
+        ),
+    )
+    return BoardTemplateLocator(
+        matcher,
+        BoardTemplateLocatorConfig(
+            resize_width=int(board_template_cfg.get("search_resize_width", config.get("runtime", {}).get("processing_width", 960))),
+            min_score=float(board_template_cfg.get("score_threshold", 0.28)),
+        ),
+    )
+
+
 def _component_specs_and_matchers(config: dict) -> tuple[list[ComponentSpec], dict[str, TemplateMatcher]]:
     components_cfg = config["components"]
     template_dirs_cfg = config["templates"]["component_dirs"]
@@ -180,6 +224,8 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     else:
         LOGGER.warning("No board reference directory found in %s", templates_cfg["board_dirs"])
 
+    board_locator = _build_board_template_locator(config, board_dirs)
+
     localizer = BoardLocalizer(
         cfg=BoardWarpConfig(
             output_size=(int(board_cfg["output_size"][0]), int(board_cfg["output_size"][1])),
@@ -208,15 +254,21 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     LOGGER.info("Enabled component matchers: %s", sorted(matchers.keys()))
 
     temporal_min_hits = int(tracking_cfg["temporal_min_hits"]) if source in {"webcam", "video"} else 1
+    enable_tracking = source in {"webcam", "video"}
+    board_template_cfg = config.get("board_template", {})
+    template_refresh_interval = int(board_template_cfg.get("refresh_interval", 5)) if enable_tracking else 1
 
     return BoardFirstDetector(
         localizer=localizer,
         component_matchers=matchers,
         component_specs=specs,
+        board_locator=board_locator,
         cfg=BoardFirstConfig(
             temporal_window=int(tracking_cfg["temporal_window"]),
             temporal_min_hits=temporal_min_hits,
             max_missing_frames=int(tracking_cfg["max_missing_frames"]),
+            template_refresh_interval=template_refresh_interval,
+            enable_tracking=enable_tracking,
         ),
     )
 

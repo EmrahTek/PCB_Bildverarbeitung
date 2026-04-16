@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from src.detection_logic.base import Detector
+from src.detection_logic.coarse_board import BoardTemplateLocator
 from src.detection_logic.postprocess import TemporalDetectionFilter, map_bbox_with_homography
 from src.detection_logic.template_match import TemplateMatcher
 from src.preprocessing.geometry import BoardLocalization, BoardLocalizer
@@ -39,6 +40,8 @@ class BoardFirstConfig:
     temporal_window: int = 5
     temporal_min_hits: int = 2
     max_missing_frames: int = 4
+    template_refresh_interval: int = 5
+    enable_tracking: bool = True
 
 
 class BoardFirstDetector(Detector):
@@ -54,25 +57,42 @@ class BoardFirstDetector(Detector):
         localizer: BoardLocalizer,
         component_matchers: dict[str, TemplateMatcher],
         component_specs: list[ComponentSpec],
+        board_locator: BoardTemplateLocator | None = None,
         cfg: BoardFirstConfig = BoardFirstConfig(),
     ) -> None:
         self._localizer = localizer
         self._component_matchers = component_matchers
         self._component_specs = component_specs
+        self._board_locator = board_locator
         self._cfg = cfg
         self._temporal = TemporalDetectionFilter(window_size=cfg.temporal_window, min_hits=cfg.temporal_min_hits)
         self._last_board_bbox: BBox | None = None
+        self._last_coarse_bbox: BBox | None = None
         self._missing_frames = 0
+        self._frame_index = 0
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
-        localization = self._localizer.localize(frame, hint_bbox=self._last_board_bbox)
+        self._frame_index += 1
+
+        coarse_hint = self._maybe_refresh_coarse_hint(frame)
+        tracking_hint = self._last_board_bbox if self._cfg.enable_tracking else None
+        hint_bbox = coarse_hint or tracking_hint
+
+        localization = self._localizer.localize(frame, hint_bbox=hint_bbox)
+        if localization is None and self._last_coarse_bbox is not None and hint_bbox != self._last_coarse_bbox:
+            localization = self._localizer.localize(frame, hint_bbox=self._last_coarse_bbox)
+
         if localization is None:
             self._missing_frames += 1
             if self._missing_frames > self._cfg.max_missing_frames:
                 self._last_board_bbox = None
+                self._last_coarse_bbox = None
             return self._temporal.update([])
 
-        self._last_board_bbox = localization.bbox
+        if self._cfg.enable_tracking:
+            self._last_board_bbox = localization.bbox
+        else:
+            self._last_board_bbox = None
         self._missing_frames = 0
 
         detections = [Detection(label="BOARD", score=localization.score, bbox=localization.bbox)]
@@ -152,3 +172,17 @@ class BoardFirstDetector(Detector):
         inter_h = max(0, inter_y2 - inter_y1)
         inter_area = inter_w * inter_h
         return inter_area / max(1, inner.area())
+
+    def _maybe_refresh_coarse_hint(self, frame: np.ndarray) -> BBox | None:
+        if self._board_locator is None:
+            return self._last_coarse_bbox
+
+        should_refresh = (
+            self._last_coarse_bbox is None
+            or not self._cfg.enable_tracking
+            or self._frame_index % max(1, self._cfg.template_refresh_interval) == 0
+        )
+        if should_refresh:
+            coarse = self._board_locator.detect(frame)
+            self._last_coarse_bbox = coarse.bbox if coarse is not None else None
+        return self._last_coarse_bbox

@@ -38,6 +38,20 @@ board:
   verify_edge_weight: 0.35
   max_reference_templates: 10
 
+board_template:
+  enabled: true
+  search_resize_width: 960
+  score_threshold: 0.28
+  refresh_interval: 5
+  max_templates: 4
+  rotations: [0, 1, 2, 3]
+  scales: [0.18, 0.22, 0.26, 0.30, 0.36, 0.42, 0.50, 0.60, 0.72, 0.86, 1.00]
+  gray_weight: 0.35
+  edge_weight: 0.65
+  blur_ksize: 3
+  use_clahe: true
+  min_template_size: 32
+
 tracking:
   temporal_window: 5
   temporal_min_hits: 2
@@ -111,6 +125,10 @@ source_profiles:
       search_expansion: 1.30
       min_score: 0.38
       min_tracked_score: 0.32
+    board_template:
+      search_resize_width: 720
+      score_threshold: 0.30
+      refresh_interval: 3
     tracking:
       temporal_min_hits: 3
     components:
