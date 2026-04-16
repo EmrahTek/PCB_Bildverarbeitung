@@ -1,125 +1,87 @@
-# Boxes/Labels/Counts zeichnen
-# Visualisierung: Bounding Boxes, Labels, Score, Count-Panel; Debug-Overlays (Board-Ecken).
-
-"""
-overlay.py
-
-This module renders visualization overlays onto frames:
-- bounding boxes and labels for detections
-- confidence scores
-- a counts panel showing how many instances per label were found
-- optional debug overlay for board detection (corners/contours)
-
-Inputs:
-- Original or warped frame (NumPy array)
-- list[Detection]
-- counts dictionary (label -> int)
-- optional debug_info (board corners, etc.)
-
-Outputs:
-- Annotated frame (NumPy array)
-
-Zu implementierende Funktionen
-
-    draw_detections(frame, detections) -> frame
-
-    draw_counts_panel(frame, counts) -> frame
-
-    draw_board_debug(frame, debug_info) -> frame
-
-    put_fps(frame, fps_value) -> frame (oder via fps.py)
-
-
-
-
-
-OpenCV drawing (rectangle, putText):
-https://docs.opencv.org/4.x/dc/da5/tutorial_py_drawing_functions.html
-"""
-
-# src/render/overlay.py
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Iterable
 
 import cv2 as cv
 import numpy as np
 
+from src.detection_logic.postprocess import count_by_label
 from src.utils.types import Detection
+
+
 @dataclass(frozen=True)
 class OverlayConfig:
-    """
-    Controls overlay appearance.
-    Keep defaults conservative and readable.
-    """
+    """Visual settings for the runtime overlay."""
     draw_scores: bool = True
-
-    # Box style
-    thickness: int = 3  # was 2
-    box_color_bgr: tuple[int, int, int] = (0, 255, 0)  # green
-
-    # Text style
+    show_counts: bool = True
+    thickness: int = 2
     font: int = cv.FONT_HERSHEY_SIMPLEX
-    font_scale: float = 0.85  # was 0.6
-    font_thickness: int = 2   # was 1
-    pad_px: int = 6  # padding for text box
+    font_scale: float = 0.46
+    font_thickness: int = 1
+    panel_x: int = 12
+    panel_y: int = 28
+    panel_row_gap: int = 6
 
-    # Label colors (background + text)
-    label_bg_bgr: tuple[int, int, int] = (0, 0, 0)        # black
-    label_text_bgr: tuple[int, int, int] = (255, 255, 255) # white
 
-def _colors_for_image(img: np.ndarray) -> tuple[object, object]:
-    """
-    Pick text/box colors depending on image channel count.
-    OpenCV expects different scalar formats for gray vs BGR vs BGRA.
-    """
-    if img.ndim == 2:
-        #grayscale
-        return 255,0 # text white, box black
-    if img.ndim == 3 and img.shape[2] == 3:
-        #BGR
-        return (255,255,255), (0,0,0)
-    if img.ndim == 3 and img.shape[2] == 4:
-        #BGRA
-        return (255,255,255,255), (0,0,0,255)
-    raise ValueError(f"Unsupported image shape for overlay: {img.shape}")
+_LABEL_COLORS: dict[str, tuple[int, int, int]] = {
+    "BOARD": (0, 255, 0),
+    "ESP32": (0, 255, 255),
+    "USB_PORT": (255, 255, 0),
+    "JST_CONNECTOR": (255, 0, 255),
+    "RESET_BUTTON": (0, 165, 255),
+}
 
-def _pick_color_for_frame(vis: np.ndarray, bgr: tuple[int, int, int], gray_fallback: int = 255):
-    """Return a color scalar compatible with the given image (gray vs BGR vs BGRA)."""
-    if vis.ndim == 2:
+_SHORT_LABELS: dict[str, str] = {
+    "BOARD": "BRD",
+    "ESP32": "ESP",
+    "USB_PORT": "USB",
+    "JST_CONNECTOR": "JST",
+    "RESET_BUTTON": "RST",
+}
+
+
+def _pick_color_for_frame(image: np.ndarray, bgr: tuple[int, int, int], gray_fallback: int = 255):
+    if image.ndim == 2:
         return gray_fallback
-    if vis.ndim == 3 and vis.shape[2] == 3:
+    if image.ndim == 3 and image.shape[2] == 3:
         return bgr
-    if vis.ndim == 3 and vis.shape[2] == 4:
+    if image.ndim == 3 and image.shape[2] == 4:
         return (*bgr, 255)
-    raise ValueError(f"Unsupported image shape for overlay: {vis.shape}")
+    raise ValueError(f"Unsupported image shape: {image.shape}")
 
-def _put_label(img: np.ndarray, x: int, y: int, text: str, cfg: OverlayConfig) -> None:
-    """
-    Draw a small filled rectangle + text at (x, y) anchor.
-    """
-    text_color = _pick_color_for_frame(img, cfg.label_text_bgr, gray_fallback=255)
-    rect_color = _pick_color_for_frame(img, cfg.label_bg_bgr, gray_fallback=0)
 
-    (tw, th), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
+def _text_color_for_bgr(image: np.ndarray, bgr: tuple[int, int, int]):
+    luminance = 0.114 * bgr[0] + 0.587 * bgr[1] + 0.299 * bgr[2]
+    text_bgr = (0, 0, 0) if luminance > 170 else (255, 255, 255)
+    return _pick_color_for_frame(image, text_bgr, gray_fallback=0 if luminance > 170 else 255)
 
-    h, w = img.shape[:2]
-    x1 = max(0, min(x, w - 1))
-    y1 = max(0, min(y, h - 1))
 
-    box_x2 = min(w, x1 + tw + 2 * cfg.pad_px)
-    box_y1 = max(0, y1 - th - baseline - 2 * cfg.pad_px)
-    box_y2 = min(h, y1)
+def _draw_label_box(
+    image: np.ndarray,
+    x: int,
+    y: int,
+    text: str,
+    background_bgr: tuple[int, int, int],
+    cfg: OverlayConfig,
+) -> None:
+    bg = _pick_color_for_frame(image, background_bgr, 255)
+    fg = _text_color_for_bgr(image, background_bgr)
+    (text_w, text_h), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
 
-    cv.rectangle(img, (x1, box_y1), (box_x2, box_y2), rect_color, thickness=-1)
+    x1 = max(0, x)
+    y2 = max(text_h + baseline + 8, y)
+    y1 = max(0, y2 - text_h - baseline - 8)
+    x2 = min(image.shape[1], x1 + text_w + 8)
+
+    cv.rectangle(image, (x1, y1), (x2, y2), bg, thickness=-1)
     cv.putText(
-        img,
+        image,
         text,
-        (x1 + cfg.pad_px, box_y2 - cfg.pad_px - baseline),
+        (x1 + 4, y2 - baseline - 4),
         cfg.font,
         cfg.font_scale,
-        text_color,
+        fg,
         cfg.font_thickness,
         cv.LINE_AA,
     )
@@ -129,62 +91,52 @@ def draw_detections(
     frame: np.ndarray,
     detections: Iterable[Detection],
     *,
-    fps: Optional[float] = None,
+    fps: float | None = None,
     debug: bool = False,
     cfg: OverlayConfig = OverlayConfig(),
 ) -> np.ndarray:
-    """
-    Draw bounding boxes + labels onto a copy of the input frame.
-
-    Args:
-        frame: Input image (gray/BGR/BGRA).
-        detections: Iterable of Detection objects.
-        fps: If provided, draw FPS text in top-left.
-        debug: If True, include scores in labels.
-        cfg: OverlayConfig for styling.
-
-    Returns:
-        A new image with overlays drawn.
-    """
+    """Draw detections, counts, and optional FPS text on top of the frame."""
     vis = frame.copy()
+    detections_list = list(detections)
 
-    # Colors compatible with gray/BGR/BGRA frames
-    fps_color = _pick_color_for_frame(vis, cfg.label_text_bgr, gray_fallback=255)
-    box_color = _pick_color_for_frame(vis, cfg.box_color_bgr, gray_fallback=255)
-
-    # Draw FPS first (slightly larger and readable)
     if fps is not None:
-        fps_text = f"FPS: {fps:5.1f}"
+        fps_color = _pick_color_for_frame(vis, (255, 255, 255))
         cv.putText(
             vis,
-            fps_text,
-            (10, 30),
+            f"FPS {fps:5.1f}",
+            (10, 20),
             cfg.font,
-            max(cfg.font_scale, 0.8),  # ensure readable fps size
+            0.5,
             fps_color,
-            max(cfg.font_thickness, 2),
+            1,
             cv.LINE_AA,
         )
 
-    # Draw each detection
-    for det in detections:
-        x1, y1, x2, y2 = det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2
+    for detection in detections_list:
+        color = _LABEL_COLORS.get(detection.label, (0, 255, 0))
+        draw_color = _pick_color_for_frame(vis, color)
+        x1 = max(0, detection.bbox.x1)
+        y1 = max(0, detection.bbox.y1)
+        x2 = min(vis.shape[1] - 1, detection.bbox.x2)
+        y2 = min(vis.shape[0] - 1, detection.bbox.y2)
+        cv.rectangle(vis, (x1, y1), (x2, y2), draw_color, thickness=cfg.thickness)
 
-        # Clamp bbox (avoid OpenCV issues with negative coords)
-        h, w = vis.shape[:2]
-        x1 = max(0, min(int(x1), w - 1))
-        y1 = max(0, min(int(y1), h - 1))
-        x2 = max(0, min(int(x2), w))
-        y2 = max(0, min(int(y2), h))
+        text = _SHORT_LABELS.get(detection.label, detection.label)
+        if debug and cfg.draw_scores:
+            text = f"{text} {detection.score:.2f}"
+        _draw_label_box(vis, x1, max(0, y1 - 2), text, color, cfg)
 
-        # Draw rectangle (green, thicker)
-        cv.rectangle(vis, (x1, y1), (x2, y2), box_color, thickness=cfg.thickness)
-
-        # Build label text
-        label = f"{det.label} {det.score:.2f}" if (debug and cfg.draw_scores) else det.label
-
-        # Draw label box + text
-        _put_label(vis, x1, y1, label, cfg)
+    if cfg.show_counts:
+        counts = count_by_label(detections_list)
+        ordered_labels = ["BOARD", "ESP32", "USB_PORT", "JST_CONNECTOR", "RESET_BUTTON"]
+        row_y = cfg.panel_y
+        for label in ordered_labels:
+            if label not in counts:
+                continue
+            text = f"{_SHORT_LABELS.get(label, label)}: {counts[label]}"
+            color = _LABEL_COLORS.get(label, (0, 255, 0))
+            _draw_label_box(vis, cfg.panel_x, row_y, text, color, cfg)
+            (text_w, text_h), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
+            row_y += text_h + baseline + cfg.panel_row_gap + 8
 
     return vis
-

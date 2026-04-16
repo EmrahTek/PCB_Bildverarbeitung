@@ -1,208 +1,116 @@
-# save frames, load templates, paths
-
-# Alle Datei-/Pfad-Operationen: YAML-Konfig laden, Templates laden, Debug-Frames speichern, Assets auflisten.
-
-"""
-io.py
-
-This module contains filesystem and I/O helpers for the project:
-- loading YAML configuration files
-- resolving project-relative asset paths
-- ensuring directories exist
-- saving debug images
-- loading template images from disk
-
-Inputs:
-- Paths (pathlib.Path) to config files, assets, or output folders.
-- NumPy arrays representing images (OpenCV format).
-
-Outputs:
-- Python dictionaries (from YAML config)
-- Template image collections (e.g., dict[label] -> list[np.ndarray])
-- Debug images saved to disk
-
-Zu implementierende Funktionen
-
-project_root() -> Path
-
-load_yaml(path: Path) -> dict
-
-resolve_asset_path(*parts) -> Path
-
-ensure_dir(path: Path) -> None
-
-save_debug_image(path: Path, image: np.ndarray) -> None
-
-list_images(folder: Path, exts=(".png",".jpg",".jpeg")) -> list[Path]
-
-load_templates(folder: Path) -> dict[str, list[np.ndarray]] (label -> templates)
-
-pathlib:
-https://docs.python.org/3/library/pathlib.html
-
-PyYAML (safe_load):
-https://pyyaml.org/wiki/PyYAMLDocumentation
-
-NumPy array basics (for images):
-https://numpy.org/doc/stable/user/quickstart.html
-
-
-
-
-"""
-
-
-# src/utils/io.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import cv2 as cv
 import numpy as np
 
 
-# Supported image extensions for templates / test images
-SUPPORTED_IMAGE_EXTS: set[str] = {
-    ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"
-}
+SUPPORTED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
 
-@dataclass(frozen=True)
-class LoadedImage:
-    """Container holding image data and its source path."""
-    path: Path
-    image: np.ndarray
+def project_root() -> Path:
+    """Return the repository root when called from inside the src tree."""
+    return Path(__file__).resolve().parents[2]
+
+
+def ensure_dir(path: Path) -> None:
+    """Create a directory if it does not exist yet."""
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
+    """Load a YAML file as a dictionary."""
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("PyYAML is required to read YAML configuration files.") from exc
+
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"YAML root must be a dictionary: {path}")
+    return data
 
 
 def list_image_files(directory: Path, *, recursive: bool = False) -> list[Path]:
-    """
-    List image files in a directory, optionally recursively.
-
-    Args:
-        directory: Directory containing images.
-        recursive: If True, search subdirectories.
-
-    Returns:
-        Sorted list of image paths.
-
-    Raises:
-        FileNotFoundError: If directory does not exist.
-        NotADirectoryError: If path exists but is not a directory.
-    """
+    """Return all supported image files in sorted order."""
     if not directory.exists():
         raise FileNotFoundError(f"Directory not found: {directory}")
     if not directory.is_dir():
-        raise NotADirectoryError(f"Not a directory: {directory}")
+        raise NotADirectoryError(f"Path is not a directory: {directory}")
 
     pattern = "**/*" if recursive else "*"
-    files = [
-        p for p in directory.glob(pattern)
-        if p.is_file() and p.suffix.lower() in SUPPORTED_IMAGE_EXTS
-    ]
-    return sorted(files, key=lambda p: p.name.lower())
+    paths = [path for path in directory.glob(pattern) if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTS]
+    return sorted(paths, key=lambda path: path.name.lower())
+
+
+def first_existing_directory(candidates: list[str | Path]) -> Path | None:
+    """Return the first directory that exists from a list of candidate paths."""
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists() and path.is_dir():
+            return path
+    return None
 
 
 def load_bgr(path: Path) -> np.ndarray:
-    """
-    Load an image from disk as BGR (OpenCV default).
-
-    Raises:
-        FileNotFoundError: If file does not exist.
-        ValueError: If OpenCV fails to decode the image.
-    """
+    """Load an image in OpenCV BGR format."""
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {path}")
-
-    img = cv.imread(str(path), cv.IMREAD_COLOR)
-    if img is None:
-        raise ValueError(f"Failed to decode image: {path}")
-    return img
-
-
-def to_gray(img: np.ndarray) -> np.ndarray:
-    """
-    Convert an image to grayscale uint8.
-
-    Accepts:
-        - gray images (H, W)
-        - BGR images  (H, W, 3)
-
-    Raises:
-        ValueError: If shape is unsupported.
-    """
-    if img.ndim == 2:
-        out = img
-    elif img.ndim == 3 and img.shape[2] == 3:
-        out = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    else:
-        raise ValueError(f"Unsupported image shape for gray conversion: {img.shape}")
-
-    if out.dtype != np.uint8:
-        out = cv.normalize(out, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-    return out
+    image = cv.imread(str(path), cv.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(f"Could not decode image: {path}")
+    return image
 
 
-def load_images(
-    directory: Path,
-    *,
-    as_gray: bool = True,
-    recursive: bool = False,
-    limit: int | None = None,
-) -> list[LoadedImage]:
-    """
-    Load all images from a directory.
+def load_gray(path: Path) -> np.ndarray:
+    """Load an image as grayscale uint8."""
+    if not path.exists():
+        raise FileNotFoundError(f"Image not found: {path}")
+    image = cv.imread(str(path), cv.IMREAD_GRAYSCALE)
+    if image is None:
+        raise ValueError(f"Could not decode image: {path}")
+    return image
 
-    Args:
-        directory: Folder containing images.
-        as_gray: If True, convert each image to grayscale.
-        recursive: If True, search subfolders as well.
-        limit: Optional maximum number of images to load.
 
-    Returns:
-        List of LoadedImage(path, image).
-
-    Raises:
-        ValueError: If no images found.
-    """
-    paths = list_image_files(directory, recursive=recursive)
-    if not paths:
-        raise ValueError(f"No image files found in: {directory}")
-
+def load_templates(template_dir: Path, *, recursive: bool = False, limit: int | None = None) -> list[np.ndarray]:
+    """Load a directory of template images as grayscale arrays."""
+    paths = list_image_files(template_dir, recursive=recursive)
     if limit is not None:
-        if limit <= 0:
-            raise ValueError("limit must be a positive integer.")
         paths = paths[:limit]
-
-    loaded: list[LoadedImage] = []
-    for p in paths:
-        bgr = load_bgr(p)
-        img = to_gray(bgr) if as_gray else bgr
-        loaded.append(LoadedImage(path=p, image=img))
-
-    return loaded
+    return [load_gray(path) for path in paths]
 
 
-def load_templates(
-    template_dir: Path,
-    *,
-    recursive: bool = False,
-    limit: int | None = None,
-) -> list[np.ndarray]:
-    """
-    Convenience helper for template matching.
+def sample_evenly(items: list[Any], count: int) -> list[Any]:
+    """Sample a list evenly without requiring random state."""
+    if count <= 0:
+        raise ValueError("count must be positive")
+    if len(items) <= count:
+        return list(items)
+    indices = np.linspace(0, len(items) - 1, num=count, dtype=int)
+    return [items[int(index)] for index in indices]
 
-    Loads templates as GRAYSCALE and returns only the image arrays.
 
-    Args:
-        template_dir: Directory containing template images.
-        recursive: If True, includes subfolders.
-        limit: Optional maximum number of templates.
+def rotate_image(image: np.ndarray, turns_90: int) -> np.ndarray:
+    """Rotate an image by multiples of 90 degrees."""
+    turns = turns_90 % 4
+    if turns == 0:
+        return image.copy()
+    if turns == 1:
+        return cv.rotate(image, cv.ROTATE_90_CLOCKWISE)
+    if turns == 2:
+        return cv.rotate(image, cv.ROTATE_180)
+    return cv.rotate(image, cv.ROTATE_90_COUNTERCLOCKWISE)
 
-    Returns:
-        List of grayscale template images.
-    """
-    return [
-        item.image
-        for item in load_images(template_dir, as_gray=True, recursive=recursive, limit=limit)
-    ]
+
+def save_debug_image(path: Path, image: np.ndarray) -> None:
+    """Save a debug image and create its parent folder if needed."""
+    ensure_dir(path.parent)
+    ok = cv.imwrite(str(path), image)
+    if not ok:
+        raise RuntimeError(f"Could not save image: {path}")

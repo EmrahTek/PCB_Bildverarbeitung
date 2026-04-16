@@ -1,0 +1,82 @@
+templates:
+  board_dirs:
+    - assets/templates/board
+    - assets/templates/BoardFireBeetle
+  component_dirs:
+    ESP32:
+      - assets/templates/esp32_module
+    USB_PORT:
+      - assets/templates/usb_port
+    JST_CONNECTOR:
+      - assets/templates/jst_connector
+    RESET_BUTTON:
+      - assets/templates/reset_button
+
+runtime:
+  window_name: PCB Component Detection
+  exit_key: q
+  processing_width: 960
+
+board:
+  output_size: [900, 460]
+  blur_ksize: 5
+  canny_t1: 45
+  canny_t2: 135
+  min_area_ratio: 0.01
+  max_area_ratio: 0.65
+  min_rectangularity: 0.30
+  expected_aspect_ratio: 1.9565
+  min_aspect_ratio: 1.00
+  max_aspect_ratio: 3.40
+  border_margin: 8
+  close_kernel: 5
+  open_kernel: 5
+  search_expansion: 1.45
+  min_score: 0.33
+  min_tracked_score: 0.27
+  verify_gray_weight: 0.65
+  verify_edge_weight: 0.35
+  max_reference_templates: 10
+
+tracking:
+  temporal_window: 5
+  temporal_min_hits: 2
+  max_missing_frames: 4
+
+components:
+  ESP32:
+    roi: [0.02, 0.05, 0.50, 0.92]
+    score_threshold: 0.32
+    scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30]
+    gray_weight: 0.70
+    edge_weight: 0.30
+    blur_ksize: 3
+    use_clahe: true
+    min_template_size: 18
+  USB_PORT:
+    roi: [0.70, 0.02, 1.00, 0.42]
+    score_threshold: 0.47
+    scales: [0.28, 0.34, 0.40, 0.48, 0.56, 0.66, 0.78, 0.90, 1.00]
+    gray_weight: 0.45
+    edge_weight: 0.55
+    blur_ksize: 3
+    use_clahe: true
+    min_template_size: 12
+  JST_CONNECTOR:
+    roi: [0.66, 0.24, 1.00, 0.92]
+    score_threshold: 0.34
+    scales: [0.40, 0.50, 0.60, 0.72, 0.84, 0.96, 1.08, 1.18]
+    gray_weight: 0.45
+    edge_weight: 0.55
+    blur_ksize: 3
+    use_clahe: true
+    min_template_size: 12
+  RESET_BUTTON:
+    roi: [0.44, 0.06, 0.76, 0.46]
+    score_threshold: 0.50
+    scales: [0.55, 0.65, 0.75, 0.85, 0.95, 1.05, 1.15]
+    gray_weight: 0.50
+    edge_weight: 0.50
+    blur_ksize: 3
+    use_clahe: true
+    min_template_size: 10
