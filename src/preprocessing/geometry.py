@@ -31,6 +31,11 @@ class BoardWarpConfig:
     min_tracked_score: float = 0.34
     verify_gray_weight: float = 0.65
     verify_edge_weight: float = 0.35
+    verify_resize_width: int = 300
+    min_objectness_score: float = 0.30
+    geometry_weight: float = 0.45
+    verify_weight: float = 0.25
+    objectness_weight: float = 0.30
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,7 @@ class _BoardCandidate:
     bbox: BBox
     geometry_score: float
     verify_score: float
+    objectness_score: float
     score: float
     homography: np.ndarray
     h_inv: np.ndarray
@@ -173,12 +179,20 @@ class BoardLocalizer:
         self._cfg = cfg
         self._references = [self._prepare_reference(image) for image in (reference_boards or [])]
 
-    def localize(self, frame: np.ndarray, hint_bbox: BBox | None = None) -> BoardLocalization | None:
-        search_boxes = [BBox(0, 0, frame.shape[1], frame.shape[0])]
+    def localize(
+        self,
+        frame: np.ndarray,
+        hint_bbox: BBox | None = None,
+        *,
+        include_full_frame: bool = True,
+    ) -> BoardLocalization | None:
+        search_boxes: list[BBox] = []
         min_score = self._cfg.min_score
         if hint_bbox is not None:
-            search_boxes.insert(0, expand_bbox(hint_bbox, frame.shape, self._cfg.search_expansion))
+            search_boxes.append(expand_bbox(hint_bbox, frame.shape, self._cfg.search_expansion))
             min_score = self._cfg.min_tracked_score
+        if include_full_frame or not search_boxes:
+            search_boxes.append(BBox(0, 0, frame.shape[1], frame.shape[0]))
 
         best: _BoardCandidate | None = None
         for search_box in search_boxes:
@@ -227,12 +241,24 @@ class BoardLocalizer:
             warped = cv.warpPerspective(frame, homography, (out_w, out_h))
             warped, homography = self._normalize_orientation(warped, homography)
             verify_score = self._verify_board(warped)
-            score = 0.75 * geometry_score + 0.25 * max(0.0, verify_score) if self._references else geometry_score
+            objectness_score = self._board_objectness_score(warped)
+            if objectness_score < self._cfg.min_objectness_score:
+                continue
+
+            if self._references:
+                score = (
+                    self._cfg.geometry_weight * geometry_score
+                    + self._cfg.verify_weight * max(0.0, verify_score)
+                    + self._cfg.objectness_weight * objectness_score
+                )
+            else:
+                score = 0.65 * geometry_score + 0.35 * objectness_score
             candidate = _BoardCandidate(
                 quad=quad,
                 bbox=quad_to_bbox(quad, frame.shape),
                 geometry_score=geometry_score,
                 verify_score=verify_score,
+                objectness_score=objectness_score,
                 score=score,
                 homography=homography,
                 h_inv=np.linalg.inv(homography),
@@ -330,6 +356,7 @@ class BoardLocalizer:
     def _prepare_reference(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         out_w, out_h = self._cfg.output_size
         resized = cv.resize(image, (out_w, out_h), interpolation=cv.INTER_AREA)
+        resized = self._resize_for_verify(resized)
         gray = clahe_gray(normalize_gray(to_gray(resized)))
         gray = gaussian_blur(gray, 3)
         edges = cv.Canny(gray, self._cfg.canny_t1, self._cfg.canny_t2)
@@ -339,6 +366,7 @@ class BoardLocalizer:
         if not self._references:
             return 1.0
 
+        warped = self._resize_for_verify(warped)
         gray = clahe_gray(normalize_gray(to_gray(warped)))
         gray = gaussian_blur(gray, 3)
         edges = cv.Canny(gray, self._cfg.canny_t1, self._cfg.canny_t2)
@@ -351,17 +379,74 @@ class BoardLocalizer:
             best = max(best, combined)
         return float(best)
 
+    def _resize_for_verify(self, image: np.ndarray) -> np.ndarray:
+        target_width = int(self._cfg.verify_resize_width)
+        if target_width <= 0 or image.shape[1] <= target_width:
+            return image
+        scale = target_width / float(image.shape[1])
+        target_height = max(1, int(round(image.shape[0] * scale)))
+        return cv.resize(image, (target_width, target_height), interpolation=cv.INTER_AREA)
+
+    def _board_objectness_score(self, warped: np.ndarray) -> float:
+        """
+        Estimate whether a warped candidate looks like the target PCB.
+
+        This deliberately avoids template identity. A true FireBeetle-style board
+        is a dark, edge-rich elongated object; false webcam candidates such as a
+        face, wall, shirt logo, or TV edge usually fail at least one of those
+        checks even when their geometry looks rectangular.
+        """
+        gray = normalize_gray(to_gray(warped))
+        h, w = gray.shape[:2]
+        inner = gray[int(0.06 * h) : int(0.94 * h), int(0.04 * w) : int(0.96 * w)]
+        if inner.size == 0:
+            return 0.0
+
+        dark_ratio = float(np.mean(inner < 120))
+        dark_score = float(np.clip((dark_ratio - 0.18) / 0.42, 0.0, 1.0))
+
+        edge_gray = clahe_gray(gray)
+        edges = cv.Canny(edge_gray, self._cfg.canny_t1, self._cfg.canny_t2)
+        inner_edges = edges[int(0.06 * h) : int(0.94 * h), int(0.04 * w) : int(0.96 * w)]
+        edge_density = float(np.mean(inner_edges > 0)) if inner_edges.size else 0.0
+        edge_score = float(np.clip((edge_density - 0.035) / 0.13, 0.0, 1.0))
+
+        return 0.60 * dark_score + 0.40 * edge_score
+
     def _normalize_orientation(self, warped: np.ndarray, homography: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Resolve the remaining 180-degree ambiguity using the reference-board bank."""
-        if not self._references:
-            return warped, homography
-
         rotated = cv.rotate(warped, cv.ROTATE_180)
-        original_score = self._verify_board(warped)
-        rotated_score = self._verify_board(rotated)
+        original_score = self._orientation_score(warped)
+        rotated_score = self._orientation_score(rotated)
         if rotated_score <= original_score:
             return warped, homography
 
         out_w, out_h = self._cfg.output_size
         rotation = _rotation_180_matrix(out_w, out_h)
         return rotated, rotation @ homography
+
+    def _orientation_score(self, warped: np.ndarray) -> float:
+        reference_score = self._verify_board(warped) if self._references else 0.0
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        _, w = hsv.shape[:2]
+        left = hsv[:, : w // 2]
+        right = hsv[:, w // 2 :]
+
+        def bright_connector_ratio(region: np.ndarray) -> float:
+            # USB/JST plastics and metal are bright with relatively low saturation.
+            mask = (region[:, :, 2] > 150) & (region[:, :, 1] < 90)
+            return float(np.mean(mask))
+
+        def dark_pcb_ratio(region: np.ndarray) -> float:
+            return float(np.mean(region[:, :, 2] < 80))
+
+        connector_bias = bright_connector_ratio(right) - bright_connector_ratio(left)
+        connector_score = float(np.clip(0.5 + connector_bias, 0.0, 1.0))
+
+        # In the canonical view the ESP module/antenna sits on the left and the
+        # denser component/connector side is on the right. On low-quality webcam
+        # frames the large ESP shield can become overexposed, so a dark-content
+        # side bias is more stable than brightness alone.
+        dark_bias = dark_pcb_ratio(right) - dark_pcb_ratio(left)
+        dark_score = float(np.clip(0.5 + 1.2 * dark_bias, 0.0, 1.0))
+        return 0.55 * reference_score + 0.15 * connector_score + 0.30 * dark_score

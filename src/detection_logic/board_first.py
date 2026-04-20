@@ -27,6 +27,9 @@ class ComponentSpec:
     label: str
     roi: RelativeROI
     score_threshold: float
+    layout_roi: RelativeROI | None = None
+    layout_fallback_score: float = 0.0
+    layout_fallback_min_board_score: float = 0.60
     min_board_area_ratio: float = 0.0
     max_board_area_ratio: float = 1.0
     min_normalized_aspect_ratio: float = 1.0
@@ -41,6 +44,7 @@ class BoardFirstConfig:
     temporal_min_hits: int = 2
     max_missing_frames: int = 4
     template_refresh_interval: int = 5
+    hint_accept_score: float = 0.58
     enable_tracking: bool = True
 
 
@@ -68,25 +72,24 @@ class BoardFirstDetector(Detector):
         self._temporal = TemporalDetectionFilter(window_size=cfg.temporal_window, min_hits=cfg.temporal_min_hits)
         self._last_board_bbox: BBox | None = None
         self._last_coarse_bbox: BBox | None = None
+        self._last_coarse_bboxes: list[BBox] = []
         self._missing_frames = 0
         self._frame_index = 0
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
         self._frame_index += 1
 
-        coarse_hint = self._maybe_refresh_coarse_hint(frame)
+        coarse_hints = self._maybe_refresh_coarse_hints(frame)
         tracking_hint = self._last_board_bbox if self._cfg.enable_tracking else None
-        hint_bbox = coarse_hint or tracking_hint
 
-        localization = self._localizer.localize(frame, hint_bbox=hint_bbox)
-        if localization is None and self._last_coarse_bbox is not None and hint_bbox != self._last_coarse_bbox:
-            localization = self._localizer.localize(frame, hint_bbox=self._last_coarse_bbox)
+        localization = self._localize_from_hints(frame, coarse_hints, tracking_hint)
 
         if localization is None:
             self._missing_frames += 1
             if self._missing_frames > self._cfg.max_missing_frames:
                 self._last_board_bbox = None
                 self._last_coarse_bbox = None
+                self._last_coarse_bboxes = []
             return self._temporal.update([])
 
         if self._cfg.enable_tracking:
@@ -113,6 +116,9 @@ class BoardFirstDetector(Detector):
 
             detection = matcher.detect_best(crop)
             if detection is None or detection.score < spec.score_threshold:
+                fallback = self._layout_fallback_detection(spec, localization, frame_shape)
+                if fallback is not None:
+                    out.append(fallback)
                 continue
 
             canonical_bbox = BBox(
@@ -123,12 +129,39 @@ class BoardFirstDetector(Detector):
             )
             mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
             if mapped_bbox is None or mapped_bbox.area() <= 0:
+                fallback = self._layout_fallback_detection(spec, localization, frame_shape)
+                if fallback is not None:
+                    out.append(fallback)
                 continue
             if not self._passes_component_sanity(spec, mapped_bbox, localization.bbox):
+                fallback = self._layout_fallback_detection(spec, localization, frame_shape)
+                if fallback is not None:
+                    out.append(fallback)
                 continue
 
             out.append(Detection(label=spec.label, score=detection.score, bbox=mapped_bbox))
         return out
+
+    def _layout_fallback_detection(
+        self,
+        spec: ComponentSpec,
+        localization: BoardLocalization,
+        frame_shape: tuple[int, ...],
+    ) -> Detection | None:
+        if spec.layout_roi is None or spec.layout_fallback_score <= 0.0:
+            return None
+        if localization.score < spec.layout_fallback_min_board_score:
+            return None
+
+        canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
+        mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
+        if mapped_bbox is None or mapped_bbox.area() <= 0:
+            return None
+        if not self._passes_component_sanity(spec, mapped_bbox, localization.bbox):
+            return None
+
+        score = min(float(localization.score), float(spec.layout_fallback_score))
+        return Detection(label=spec.label, score=score, bbox=mapped_bbox)
 
     @staticmethod
     def _roi_to_bbox(roi: RelativeROI, shape: tuple[int, ...]) -> BBox:
@@ -173,9 +206,45 @@ class BoardFirstDetector(Detector):
         inter_area = inter_w * inter_h
         return inter_area / max(1, inner.area())
 
-    def _maybe_refresh_coarse_hint(self, frame: np.ndarray) -> BBox | None:
+    def _localize_from_hints(
+        self,
+        frame: np.ndarray,
+        coarse_hints: list[BBox],
+        tracking_hint: BBox | None,
+    ) -> BoardLocalization | None:
+        hints: list[BBox] = []
+        hints.extend(coarse_hints)
+        if tracking_hint is not None:
+            hints.append(tracking_hint)
+
+        unique_hints: list[BBox] = []
+        seen: set[tuple[int, int, int, int]] = set()
+        for hint in hints:
+            key = (hint.x1 // 8, hint.y1 // 8, hint.x2 // 8, hint.y2 // 8)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_hints.append(hint)
+
+        best: BoardLocalization | None = None
+        for hint in unique_hints[:4]:
+            candidate = self._localizer.localize(frame, hint_bbox=hint, include_full_frame=False)
+            if candidate is None:
+                continue
+            if best is None or candidate.score > best.score:
+                best = candidate
+
+        if best is not None and best.score >= self._cfg.hint_accept_score:
+            return best
+
+        full_frame = self._localizer.localize(frame)
+        if full_frame is not None and (best is None or full_frame.score > best.score):
+            best = full_frame
+        return best
+
+    def _maybe_refresh_coarse_hints(self, frame: np.ndarray) -> list[BBox]:
         if self._board_locator is None:
-            return self._last_coarse_bbox
+            return list(self._last_coarse_bboxes)
 
         should_refresh = (
             self._last_coarse_bbox is None
@@ -183,6 +252,11 @@ class BoardFirstDetector(Detector):
             or self._frame_index % max(1, self._cfg.template_refresh_interval) == 0
         )
         if should_refresh:
-            coarse = self._board_locator.detect(frame)
-            self._last_coarse_bbox = coarse.bbox if coarse is not None else None
-        return self._last_coarse_bbox
+            if hasattr(self._board_locator, "detect_candidates"):
+                coarse_candidates = self._board_locator.detect_candidates(frame)
+            else:
+                coarse = self._board_locator.detect(frame)
+                coarse_candidates = [coarse] if coarse is not None else []
+            self._last_coarse_bboxes = [candidate.bbox for candidate in coarse_candidates if candidate is not None]
+            self._last_coarse_bbox = self._last_coarse_bboxes[0] if self._last_coarse_bboxes else None
+        return list(self._last_coarse_bboxes)

@@ -11,7 +11,13 @@ class DummyLocalizer:
     def __init__(self, localization: BoardLocalization) -> None:
         self._localization = localization
 
-    def localize(self, frame: np.ndarray, hint_bbox: BBox | None = None) -> BoardLocalization | None:
+    def localize(
+        self,
+        frame: np.ndarray,
+        hint_bbox: BBox | None = None,
+        *,
+        include_full_frame: bool = True,
+    ) -> BoardLocalization | None:
         return self._localization
 
 
@@ -80,3 +86,33 @@ def test_board_first_keeps_component_with_plausible_board_relative_size() -> Non
 
     detections = detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
     assert sorted(det.label for det in detections) == ["BOARD", "RESET_BUTTON"]
+
+
+def test_board_first_uses_layout_fallback_when_template_score_is_missing() -> None:
+    detector = BoardFirstDetector(
+        localizer=DummyLocalizer(_identity_localization()),
+        component_matchers={
+            "USB_PORT": DummyMatcher(None),
+        },
+        component_specs=[
+            ComponentSpec(
+                label="USB_PORT",
+                roi=RelativeROI(0.0, 0.0, 1.0, 1.0),
+                score_threshold=0.80,
+                layout_roi=RelativeROI(0.70, 0.20, 0.82, 0.40),
+                layout_fallback_score=0.60,
+                layout_fallback_min_board_score=0.50,
+                min_board_area_ratio=0.005,
+                max_board_area_ratio=0.10,
+                min_normalized_aspect_ratio=1.0,
+                max_normalized_aspect_ratio=3.0,
+            )
+        ],
+        cfg=BoardFirstConfig(temporal_window=1, temporal_min_hits=1),
+    )
+
+    detections = detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
+    labels = sorted(det.label for det in detections)
+    assert labels == ["BOARD", "USB_PORT"]
+    usb = next(det for det in detections if det.label == "USB_PORT")
+    assert usb.score == 0.60

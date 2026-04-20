@@ -170,6 +170,7 @@ def _build_board_template_locator(config: dict, board_dirs: list[Path], template
         BoardTemplateLocatorConfig(
             resize_width=int(board_template_cfg.get("search_resize_width", config.get("runtime", {}).get("processing_width", 960))),
             min_score=float(board_template_cfg.get("score_threshold", 0.28)),
+            max_candidates=int(board_template_cfg.get("max_candidates", 8)),
         ),
     )
 
@@ -221,11 +222,31 @@ def _component_specs_and_matchers(
             if prepared_bank is not None and use_prepared_rois
             else tuple(component_cfg["roi"])
         )
+        layout_roi = None
+        if prepared_bank is not None and label in prepared_bank.component_rois:
+            layout_roi_values = prepared_bank.component_rois[label]
+            layout_roi = RelativeROI(
+                float(layout_roi_values[0]),
+                float(layout_roi_values[1]),
+                float(layout_roi_values[2]),
+                float(layout_roi_values[3]),
+            )
+        elif "layout_roi" in component_cfg:
+            layout_roi_values = tuple(component_cfg["layout_roi"])
+            layout_roi = RelativeROI(
+                float(layout_roi_values[0]),
+                float(layout_roi_values[1]),
+                float(layout_roi_values[2]),
+                float(layout_roi_values[3]),
+            )
         specs.append(
             ComponentSpec(
                 label=label,
                 roi=RelativeROI(float(roi[0]), float(roi[1]), float(roi[2]), float(roi[3])),
                 score_threshold=float(component_cfg["score_threshold"]),
+                layout_roi=layout_roi,
+                layout_fallback_score=float(component_cfg.get("layout_fallback_score", 0.0)),
+                layout_fallback_min_board_score=float(component_cfg.get("layout_fallback_min_board_score", 0.60)),
                 min_board_area_ratio=float(component_cfg.get("min_board_area_ratio", 0.0)),
                 max_board_area_ratio=float(component_cfg.get("max_board_area_ratio", 1.0)),
                 min_normalized_aspect_ratio=float(component_cfg.get("min_normalized_aspect_ratio", 1.0)),
@@ -293,6 +314,11 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             min_tracked_score=float(board_cfg["min_tracked_score"]),
             verify_gray_weight=float(board_cfg["verify_gray_weight"]),
             verify_edge_weight=float(board_cfg["verify_edge_weight"]),
+            verify_resize_width=int(board_cfg.get("verify_resize_width", 300)),
+            min_objectness_score=float(board_cfg.get("min_objectness_score", 0.30)),
+            geometry_weight=float(board_cfg.get("geometry_weight", 0.45)),
+            verify_weight=float(board_cfg.get("verify_weight", 0.25)),
+            objectness_weight=float(board_cfg.get("objectness_weight", 0.30)),
         ),
         reference_boards=reference_boards,
     )
@@ -315,6 +341,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             temporal_min_hits=temporal_min_hits,
             max_missing_frames=int(tracking_cfg["max_missing_frames"]),
             template_refresh_interval=template_refresh_interval,
+            hint_accept_score=float(tracking_cfg.get("hint_accept_score", 0.58)),
             enable_tracking=enable_tracking,
         ),
     )

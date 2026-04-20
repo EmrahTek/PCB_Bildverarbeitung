@@ -78,6 +78,46 @@ class TemplateMatcher(Detector):
             return None
         return best
 
+    def detect_candidates(
+        self,
+        frame: np.ndarray,
+        *,
+        max_candidates: int = 8,
+        score_threshold: float | None = None,
+    ) -> list[Detection]:
+        """Return several strong, spatially distinct template candidates."""
+        scene_gray, scene_edges = prepare_match_images(frame, self._prep_cfg)
+        threshold = self._cfg.score_threshold if score_threshold is None else score_threshold
+        candidates: list[Detection] = []
+
+        for template in self._templates:
+            if template.height > scene_gray.shape[0] or template.width > scene_gray.shape[1]:
+                continue
+
+            response = self._combined_response(scene_gray, scene_edges, template).copy()
+            peaks_per_template = max(1, min(3, max_candidates))
+            for _ in range(peaks_per_template):
+                _, score, _, max_loc = cv.minMaxLoc(response)
+                if score < threshold:
+                    break
+                x, y = max_loc
+                candidates.append(
+                    Detection(
+                        label=self._cfg.label,
+                        score=float(score),
+                        bbox=BBox(int(x), int(y), int(x + template.width), int(y + template.height)),
+                    )
+                )
+
+                suppress_x1 = max(0, x - template.width // 2)
+                suppress_y1 = max(0, y - template.height // 2)
+                suppress_x2 = min(response.shape[1], x + template.width // 2)
+                suppress_y2 = min(response.shape[0], y + template.height // 2)
+                response[suppress_y1:suppress_y2, suppress_x1:suppress_x2] = -1.0
+
+        candidates.sort(key=lambda det: det.score, reverse=True)
+        return candidates[:max_candidates]
+
     def best_raw_score(self, frame: np.ndarray) -> float:
         """Return the best raw score without applying the configured threshold."""
         scene_gray, scene_edges = prepare_match_images(frame, self._prep_cfg)
