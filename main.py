@@ -20,6 +20,7 @@ from src.detection_logic.template_match import TemplateMatchConfig, TemplateMatc
 from src.logging.setup import setup_logging
 from src.preprocessing.geometry import BoardLocalizer, BoardWarpConfig
 from src.utils.io import first_existing_directory, load_bgr, load_templates, load_yaml, rotate_image, sample_evenly
+from src.utils.prepared_templates import PreparedTemplateBank, load_prepared_template_bank
 
 LOGGER = logging.getLogger(__name__)
 
@@ -104,10 +105,33 @@ def _apply_source_profile(config: dict[str, Any], source: str) -> dict[str, Any]
 
 
 def _existing_directories(candidates: list[str | Path]) -> list[Path]:
-    return [Path(candidate) for candidate in candidates if Path(candidate).exists() and Path(candidate).is_dir()]
+    return [Path(candidate).resolve() for candidate in candidates if Path(candidate).exists() and Path(candidate).is_dir()]
 
 
-def _build_board_template_locator(config: dict, board_dirs: list[Path]) -> BoardTemplateLocator | None:
+def _first_existing_file(candidates: list[str | Path]) -> Path | None:
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists() and path.is_file():
+            return path.resolve()
+    return None
+
+
+def _load_prepared_template_bank(config: dict) -> PreparedTemplateBank | None:
+    templates_cfg = config.get("templates", {})
+    metadata_path = _first_existing_file(templates_cfg.get("prepared_metadata_paths", []))
+    if metadata_path is None:
+        return None
+    rotation_turns = int(templates_cfg.get("rotation_turns", 0))
+    return load_prepared_template_bank(metadata_path, rotation_turns=rotation_turns)
+
+
+def _rotate_template_bank(images: list[np.ndarray], turns_90: int) -> list[np.ndarray]:
+    if turns_90 % 4 == 0:
+        return images
+    return [rotate_image(image, turns_90) for image in images]
+
+
+def _build_board_template_locator(config: dict, board_dirs: list[Path], template_rotation_turns: int) -> BoardTemplateLocator | None:
     board_template_cfg = config.get("board_template", {})
     if not bool(board_template_cfg.get("enabled", True)):
         return None
@@ -120,7 +144,7 @@ def _build_board_template_locator(config: dict, board_dirs: list[Path]) -> Board
     templates_gray: list[np.ndarray] = []
     all_templates: list[np.ndarray] = []
     for board_dir in board_dirs:
-        all_templates.extend(load_templates(board_dir))
+        all_templates.extend(_rotate_template_bank(load_templates(board_dir), template_rotation_turns))
     for template in sample_evenly(all_templates, min(len(all_templates), max_templates)):
         for turns_90 in rotations:
             templates_gray.append(rotate_image(template, turns_90))
@@ -150,20 +174,28 @@ def _build_board_template_locator(config: dict, board_dirs: list[Path]) -> Board
     )
 
 
-def _component_specs_and_matchers(config: dict) -> tuple[list[ComponentSpec], dict[str, TemplateMatcher]]:
+def _component_specs_and_matchers(
+    config: dict,
+    prepared_bank: PreparedTemplateBank | None,
+    template_rotation_turns: int,
+) -> tuple[list[ComponentSpec], dict[str, TemplateMatcher]]:
     components_cfg = config["components"]
     template_dirs_cfg = config["templates"]["component_dirs"]
+    use_prepared_rois = bool(config["templates"].get("use_prepared_rois", False))
     specs: list[ComponentSpec] = []
     matchers: dict[str, TemplateMatcher] = {}
 
     for label, component_cfg in components_cfg.items():
-        candidates = template_dirs_cfg.get(label, [])
+        candidates: list[str | Path] = []
+        if prepared_bank is not None and label in prepared_bank.component_dirs:
+            candidates.append(prepared_bank.component_dirs[label])
+        candidates.extend(template_dirs_cfg.get(label, []))
         template_dir = first_existing_directory(candidates)
         if template_dir is None:
             LOGGER.warning("Skipping %s because no template directory was found in %s", label, candidates)
             continue
 
-        templates = load_templates(template_dir)
+        templates = _rotate_template_bank(load_templates(template_dir), template_rotation_turns)
         if not templates:
             LOGGER.warning("Skipping %s because the template directory is empty: %s", label, template_dir)
             continue
@@ -184,7 +216,11 @@ def _component_specs_and_matchers(config: dict) -> tuple[list[ComponentSpec], di
                 min_template_size=int(component_cfg["min_template_size"]),
             ),
         )
-        roi = component_cfg["roi"]
+        roi = (
+            prepared_bank.component_rois.get(label, tuple(component_cfg["roi"]))
+            if prepared_bank is not None and use_prepared_rois
+            else tuple(component_cfg["roi"])
+        )
         specs.append(
             ComponentSpec(
                 label=label,
@@ -207,15 +243,20 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     board_cfg = config["board"]
     tracking_cfg = config["tracking"]
     templates_cfg = config["templates"]
+    prepared_bank = _load_prepared_template_bank(config)
+    template_rotation_turns = int(templates_cfg.get("rotation_turns", 0))
 
     reference_boards: list[np.ndarray] = []
-    board_dirs = _existing_directories(templates_cfg["board_dirs"])
+    board_dirs: list[Path] = []
+    if prepared_bank is not None:
+        board_dirs.append(prepared_bank.board_dir)
+    board_dirs.extend(path for path in _existing_directories(templates_cfg["board_dirs"]) if path not in board_dirs)
     if board_dirs:
         board_paths: list[Path] = []
         for board_dir in board_dirs:
             board_paths.extend(path for path in sorted(board_dir.glob("*")) if path.is_file())
         board_paths = sample_evenly(board_paths, min(len(board_paths), int(board_cfg["max_reference_templates"])))
-        reference_boards = [load_bgr(path) for path in board_paths]
+        reference_boards = _rotate_template_bank([load_bgr(path) for path in board_paths], template_rotation_turns)
         LOGGER.info(
             "Loaded %d board reference images from %s",
             len(reference_boards),
@@ -224,18 +265,24 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     else:
         LOGGER.warning("No board reference directory found in %s", templates_cfg["board_dirs"])
 
-    board_locator = _build_board_template_locator(config, board_dirs)
+    board_locator = _build_board_template_locator(config, board_dirs, template_rotation_turns)
+    output_size = (
+        tuple(int(value) for value in prepared_bank.canonical_size)
+        if prepared_bank is not None
+        else (int(board_cfg["output_size"][0]), int(board_cfg["output_size"][1]))
+    )
+    expected_aspect_ratio = max(output_size[0] / output_size[1], output_size[1] / output_size[0])
 
     localizer = BoardLocalizer(
         cfg=BoardWarpConfig(
-            output_size=(int(board_cfg["output_size"][0]), int(board_cfg["output_size"][1])),
+            output_size=output_size,
             blur_ksize=int(board_cfg["blur_ksize"]),
             canny_t1=int(board_cfg["canny_t1"]),
             canny_t2=int(board_cfg["canny_t2"]),
             min_area_ratio=float(board_cfg["min_area_ratio"]),
             max_area_ratio=float(board_cfg["max_area_ratio"]),
             min_rectangularity=float(board_cfg["min_rectangularity"]),
-            expected_aspect_ratio=float(board_cfg["expected_aspect_ratio"]),
+            expected_aspect_ratio=float(expected_aspect_ratio),
             min_aspect_ratio=float(board_cfg["min_aspect_ratio"]),
             max_aspect_ratio=float(board_cfg["max_aspect_ratio"]),
             border_margin=int(board_cfg["border_margin"]),
@@ -250,7 +297,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
         reference_boards=reference_boards,
     )
 
-    specs, matchers = _component_specs_and_matchers(config)
+    specs, matchers = _component_specs_and_matchers(config, prepared_bank, template_rotation_turns)
     LOGGER.info("Enabled component matchers: %s", sorted(matchers.keys()))
 
     temporal_min_hits = int(tracking_cfg["temporal_min_hits"]) if source in {"webcam", "video"} else 1

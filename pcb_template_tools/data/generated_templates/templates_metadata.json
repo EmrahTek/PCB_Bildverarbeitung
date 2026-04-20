@@ -1,0 +1,279 @@
+{
+  "mode": "multi_image_canonical_roi_reuse",
+  "num_source_images": 3,
+  "source_images": [
+    "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+    "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+    "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png"
+  ],
+  "reference_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+  "image_shape": [
+    460,
+    900,
+    3
+  ],
+  "components": [
+    "esp32",
+    "usb_port",
+    "jst_connector",
+    "reset_button"
+  ],
+  "rois": {
+    "esp32": [
+      79,
+      71,
+      290,
+      294
+    ],
+    "usb_port": [
+      718,
+      86,
+      124,
+      137
+    ],
+    "jst_connector": [
+      675,
+      220,
+      167,
+      146
+    ],
+    "reset_button": [
+      530,
+      126,
+      73,
+      91
+    ]
+  },
+  "records": [
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        79,
+        71,
+        290,
+        294
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img01_IMG_9763_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        718,
+        86,
+        124,
+        137
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img01_IMG_9763_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        675,
+        220,
+        167,
+        146
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img01_IMG_9763_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        530,
+        126,
+        73,
+        91
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img01_IMG_9763_warped_noise.png"
+      ]
+    },
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        79,
+        71,
+        290,
+        294
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img02_IMG_9757_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        718,
+        86,
+        124,
+        137
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img02_IMG_9757_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        675,
+        220,
+        167,
+        146
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img02_IMG_9757_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        530,
+        126,
+        73,
+        91
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img02_IMG_9757_warped_noise.png"
+      ]
+    },
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        79,
+        71,
+        290,
+        294
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/esp32/esp32_img03_IMG_9766_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        718,
+        86,
+        124,
+        137
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/usb_port/usb_port_img03_IMG_9766_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        675,
+        220,
+        167,
+        146
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/jst_connector/jst_connector_img03_IMG_9766_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        530,
+        126,
+        73,
+        91
+      ],
+      "source_image": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
+      "files": [
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_base.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_bright.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_dark.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_blur.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_rot_p5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_rot_m5.png",
+        "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/reset_button/reset_button_img03_IMG_9766_warped_noise.png"
+      ]
+    }
+  ],
+  "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/selected_rois_preview.png",
+  "roi_file": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/generated_templates/component_rois.json"
+}
