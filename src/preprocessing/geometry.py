@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import cv2 as cv
@@ -8,6 +9,8 @@ import numpy as np
 from src.preprocessing.color import normalize_gray, to_gray
 from src.preprocessing.filters import clahe_gray, gaussian_blur
 from src.utils.types import BBox
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class BoardWarpConfig:
     search_expansion: float = 1.45
     min_score: float = 0.42
     min_tracked_score: float = 0.34
+    min_warp_quality_score: float = 0.38
+    min_tracked_warp_quality_score: float = 0.32
     verify_gray_weight: float = 0.65
     verify_edge_weight: float = 0.35
     verify_resize_width: int = 300
@@ -47,6 +52,10 @@ class BoardLocalization:
     h_inv: np.ndarray
     warped: np.ndarray
     score: float
+    warp_quality_score: float = 1.0
+    geometry_score: float = 1.0
+    verify_score: float = 1.0
+    objectness_score: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -56,6 +65,7 @@ class _BoardCandidate:
     geometry_score: float
     verify_score: float
     objectness_score: float
+    warp_quality_score: float
     score: float
     homography: np.ndarray
     h_inv: np.ndarray
@@ -188,9 +198,11 @@ class BoardLocalizer:
     ) -> BoardLocalization | None:
         search_boxes: list[BBox] = []
         min_score = self._cfg.min_score
+        min_warp_quality = self._cfg.min_warp_quality_score
         if hint_bbox is not None:
             search_boxes.append(expand_bbox(hint_bbox, frame.shape, self._cfg.search_expansion))
             min_score = self._cfg.min_tracked_score
+            min_warp_quality = self._cfg.min_tracked_warp_quality_score
         if include_full_frame or not search_boxes:
             search_boxes.append(BBox(0, 0, frame.shape[1], frame.shape[0]))
 
@@ -204,7 +216,33 @@ class BoardLocalizer:
             if candidate.score >= min_score:
                 break
 
-        if best is None or best.score < min_score:
+        if best is None:
+            LOGGER.debug(
+                "board rejected: no candidate hint=%s include_full_frame=%s",
+                hint_bbox is not None,
+                include_full_frame,
+            )
+            return None
+
+        if best.score < min_score or best.warp_quality_score < min_warp_quality:
+            reasons: list[str] = []
+            if best.score < min_score:
+                reasons.append("low_score")
+            if best.warp_quality_score < min_warp_quality:
+                reasons.append("low_warp_quality")
+            LOGGER.debug(
+                "board rejected: reason=%s score=%.3f min_score=%.3f warp_quality=%.3f "
+                "min_warp_quality=%.3f geometry=%.3f verify=%.3f objectness=%.3f bbox=%s",
+                "+".join(reasons),
+                best.score,
+                min_score,
+                best.warp_quality_score,
+                min_warp_quality,
+                best.geometry_score,
+                best.verify_score,
+                best.objectness_score,
+                best.bbox,
+            )
             return None
 
         return BoardLocalization(
@@ -214,6 +252,10 @@ class BoardLocalizer:
             h_inv=best.h_inv,
             warped=best.warped,
             score=best.score,
+            warp_quality_score=best.warp_quality_score,
+            geometry_score=best.geometry_score,
+            verify_score=best.verify_score,
+            objectness_score=best.objectness_score,
         )
 
     def _find_best_candidate(self, frame: np.ndarray, search_box: BBox) -> _BoardCandidate | None:
@@ -243,22 +285,32 @@ class BoardLocalizer:
             verify_score = self._verify_board(warped)
             objectness_score = self._board_objectness_score(warped)
             if objectness_score < self._cfg.min_objectness_score:
+                LOGGER.debug(
+                    "board candidate rejected: reason=low_objectness objectness=%.3f min=%.3f geometry=%.3f verify=%.3f",
+                    objectness_score,
+                    self._cfg.min_objectness_score,
+                    geometry_score,
+                    verify_score,
+                )
                 continue
+            warp_quality_score = self._warp_quality_score(quad, warped, geometry_score, verify_score, objectness_score)
 
             if self._references:
-                score = (
+                base_score = (
                     self._cfg.geometry_weight * geometry_score
                     + self._cfg.verify_weight * max(0.0, verify_score)
                     + self._cfg.objectness_weight * objectness_score
                 )
             else:
-                score = 0.65 * geometry_score + 0.35 * objectness_score
+                base_score = 0.65 * geometry_score + 0.35 * objectness_score
+            score = 0.82 * base_score + 0.18 * warp_quality_score
             candidate = _BoardCandidate(
                 quad=quad,
                 bbox=quad_to_bbox(quad, frame.shape),
                 geometry_score=geometry_score,
                 verify_score=verify_score,
                 objectness_score=objectness_score,
+                warp_quality_score=warp_quality_score,
                 score=score,
                 homography=homography,
                 h_inv=np.linalg.inv(homography),
@@ -413,6 +465,97 @@ class BoardLocalizer:
 
         return 0.60 * dark_score + 0.40 * edge_score
 
+    def _warp_quality_score(
+        self,
+        quad: np.ndarray,
+        warped: np.ndarray,
+        geometry_score: float,
+        verify_score: float,
+        objectness_score: float,
+    ) -> float:
+        """
+        Score whether the candidate warp is good enough for fixed canonical ROIs.
+
+        This is deliberately separate from board confidence. A clutter rectangle can
+        have plausible geometry, but bad edge balance, poor board fill, or weak
+        canonical left/right structure should keep it from driving components.
+        """
+        top = np.linalg.norm(quad[1] - quad[0])
+        bottom = np.linalg.norm(quad[2] - quad[3])
+        left = np.linalg.norm(quad[3] - quad[0])
+        right = np.linalg.norm(quad[2] - quad[1])
+
+        def balance_score(a: float, b: float) -> float:
+            ratio = max(a, b) / max(1e-6, min(a, b))
+            return float(np.exp(-1.35 * abs(np.log(ratio))))
+
+        edge_balance = 0.5 * balance_score(top, bottom) + 0.5 * balance_score(left, right)
+
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        h, w = hsv.shape[:2]
+        margin_y = max(2, int(0.035 * h))
+        margin_x = max(2, int(0.025 * w))
+        border = np.concatenate(
+            [
+                hsv[:margin_y, :, :].reshape(-1, 3),
+                hsv[h - margin_y :, :, :].reshape(-1, 3),
+                hsv[:, :margin_x, :].reshape(-1, 3),
+                hsv[:, w - margin_x :, :].reshape(-1, 3),
+            ],
+            axis=0,
+        )
+        white_border_ratio = float(np.mean((border[:, 2] > 185) & (border[:, 1] < 70))) if border.size else 1.0
+        border_fill_score = float(np.clip(1.0 - (white_border_ratio - 0.10) / 0.55, 0.0, 1.0))
+
+        canonical_score = self._canonical_structure_score(warped)
+        verify_quality = float(np.clip((verify_score + 0.08) / 0.58, 0.0, 1.0)) if self._references else 1.0
+
+        quality = (
+            0.22 * float(np.clip(geometry_score, 0.0, 1.0))
+            + 0.22 * verify_quality
+            + 0.22 * float(np.clip(objectness_score, 0.0, 1.0))
+            + 0.16 * border_fill_score
+            + 0.10 * edge_balance
+            + 0.08 * canonical_score
+        )
+        return float(np.clip(quality, 0.0, 1.0))
+
+    def _canonical_structure_score(self, warped: np.ndarray) -> float:
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        gray = normalize_gray(to_gray(warped))
+        gray = clahe_gray(gray)
+        edges = cv.Canny(gray, self._cfg.canny_t1, self._cfg.canny_t2)
+        h, w = gray.shape[:2]
+
+        def roi(x1f: float, y1f: float, x2f: float, y2f: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            x1 = int(round(x1f * w))
+            y1 = int(round(y1f * h))
+            x2 = int(round(x2f * w))
+            y2 = int(round(y2f * h))
+            return gray[y1:y2, x1:x2], hsv[y1:y2, x1:x2], edges[y1:y2, x1:x2]
+
+        esp_gray, _esp_hsv, esp_edges = roi(0.04, 0.10, 0.48, 0.88)
+        _conn_gray, conn_hsv, conn_edges = roi(0.66, 0.10, 0.98, 0.88)
+        if esp_gray.size == 0 or conn_hsv.size == 0:
+            return 0.0
+
+        esp_dark_ratio = float(np.mean(esp_gray < 125))
+        esp_edge_density = float(np.mean(esp_edges > 0)) if esp_edges.size else 0.0
+        connector_bright_ratio = float(np.mean((conn_hsv[:, :, 2] > 145) & (conn_hsv[:, :, 1] < 115)))
+        connector_edge_density = float(np.mean(conn_edges > 0)) if conn_edges.size else 0.0
+
+        esp_score = 0.55 * np.clip((esp_dark_ratio - 0.18) / 0.42, 0.0, 1.0) + 0.45 * np.clip(
+            (esp_edge_density - 0.025) / 0.12,
+            0.0,
+            1.0,
+        )
+        connector_score = 0.65 * np.clip((connector_bright_ratio - 0.035) / 0.16, 0.0, 1.0) + 0.35 * np.clip(
+            (connector_edge_density - 0.025) / 0.12,
+            0.0,
+            1.0,
+        )
+        return float(np.clip(0.52 * esp_score + 0.48 * connector_score, 0.0, 1.0))
+
     def _normalize_orientation(self, warped: np.ndarray, homography: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Resolve the remaining 180-degree ambiguity using the reference-board bank."""
         rotated = cv.rotate(warped, cv.ROTATE_180)
@@ -428,9 +571,13 @@ class BoardLocalizer:
     def _orientation_score(self, warped: np.ndarray) -> float:
         reference_score = self._verify_board(warped) if self._references else 0.0
         hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        gray = normalize_gray(to_gray(warped))
+        edges = cv.Canny(clahe_gray(gray), self._cfg.canny_t1, self._cfg.canny_t2)
         _, w = hsv.shape[:2]
         left = hsv[:, : w // 2]
         right = hsv[:, w // 2 :]
+        left_edges = edges[:, : w // 2]
+        right_edges = edges[:, w // 2 :]
 
         def bright_connector_ratio(region: np.ndarray) -> float:
             # USB/JST plastics and metal are bright with relatively low saturation.
@@ -441,12 +588,14 @@ class BoardLocalizer:
             return float(np.mean(region[:, :, 2] < 80))
 
         connector_bias = bright_connector_ratio(right) - bright_connector_ratio(left)
-        connector_score = float(np.clip(0.5 + connector_bias, 0.0, 1.0))
+        connector_score = float(np.clip(0.5 + 1.4 * connector_bias, 0.0, 1.0))
 
-        # In the canonical view the ESP module/antenna sits on the left and the
-        # denser component/connector side is on the right. On low-quality webcam
-        # frames the large ESP shield can become overexposed, so a dark-content
-        # side bias is more stable than brightness alone.
-        dark_bias = dark_pcb_ratio(right) - dark_pcb_ratio(left)
-        dark_score = float(np.clip(0.5 + 1.2 * dark_bias, 0.0, 1.0))
-        return 0.55 * reference_score + 0.15 * connector_score + 0.30 * dark_score
+        # Canonical convention: ESP32/BLE module on the left, USB/JST on the right.
+        # The left side should usually carry more dark module area and enough edge
+        # structure even when exposure shifts.
+        module_bias = (dark_pcb_ratio(left) + float(np.mean(left_edges > 0))) - (
+            dark_pcb_ratio(right) + float(np.mean(right_edges > 0))
+        )
+        module_score = float(np.clip(0.5 + 0.9 * module_bias, 0.0, 1.0))
+        structure_score = self._canonical_structure_score(warped)
+        return 0.50 * reference_score + 0.20 * connector_score + 0.20 * module_score + 0.10 * structure_score

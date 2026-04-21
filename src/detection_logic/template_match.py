@@ -21,6 +21,8 @@ class TemplateMatchConfig:
     use_clahe: bool = True
     blur_ksize: int = 3
     min_template_size: int = 12
+    min_score_margin: float = 0.0
+    second_best_iou_threshold: float = 0.45
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,16 @@ class _PreparedTemplate:
     edges: np.ndarray
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class TemplateMatchResult:
+    """Best template hit plus ambiguity diagnostics."""
+    detection: Detection | None
+    best_score: float
+    second_score: float
+    score_margin: float
+    reason: str = ""
 
 
 class TemplateMatcher(Detector):
@@ -57,8 +69,11 @@ class TemplateMatcher(Detector):
         return [detection]
 
     def detect_best(self, frame: np.ndarray) -> Detection | None:
+        return self.detect_best_with_stats(frame).detection
+
+    def detect_best_with_stats(self, frame: np.ndarray) -> TemplateMatchResult:
         scene_gray, scene_edges = prepare_match_images(frame, self._prep_cfg)
-        best: Detection | None = None
+        candidates: list[Detection] = []
 
         for template in self._templates:
             if template.height > scene_gray.shape[0] or template.width > scene_gray.shape[1]:
@@ -66,17 +81,45 @@ class TemplateMatcher(Detector):
 
             response = self._combined_response(scene_gray, scene_edges, template)
             _, score, _, max_loc = cv.minMaxLoc(response)
-            if best is None or score > best.score:
-                x, y = max_loc
-                best = Detection(
+            x, y = max_loc
+            candidates.append(
+                Detection(
                     label=self._cfg.label,
                     score=float(score),
                     bbox=BBox(int(x), int(y), int(x + template.width), int(y + template.height)),
                 )
+            )
 
-        if best is None or best.score < self._cfg.score_threshold:
-            return None
-        return best
+            if self._cfg.min_score_margin > 0.0:
+                suppressed = response.copy()
+                self._suppress_response_peak(suppressed, x, y, template.width, template.height)
+                _, second_score, _, second_loc = cv.minMaxLoc(suppressed)
+                sx, sy = second_loc
+                candidates.append(
+                    Detection(
+                        label=self._cfg.label,
+                        score=float(second_score),
+                        bbox=BBox(int(sx), int(sy), int(sx + template.width), int(sy + template.height)),
+                    )
+                )
+
+        if not candidates:
+            return TemplateMatchResult(None, -1.0, -1.0, 1.0, "no_valid_template")
+
+        candidates.sort(key=lambda det: det.score, reverse=True)
+        best = candidates[0]
+        second_score = -1.0
+        for candidate in candidates[1:]:
+            if _bbox_iou(best.bbox, candidate.bbox) <= self._cfg.second_best_iou_threshold:
+                second_score = candidate.score
+                break
+
+        margin = 1.0 if second_score < 0.0 else best.score - second_score
+        if best.score < self._cfg.score_threshold:
+            return TemplateMatchResult(None, best.score, second_score, margin, "low_score")
+        if margin < self._cfg.min_score_margin:
+            return TemplateMatchResult(None, best.score, second_score, margin, "ambiguous_score_margin")
+        return TemplateMatchResult(best, best.score, second_score, margin)
 
     def detect_candidates(
         self,
@@ -138,6 +181,14 @@ class TemplateMatcher(Detector):
         edge_response = cv.matchTemplate(scene_edges, template.edges, cv.TM_CCOEFF_NORMED)
         return self._cfg.gray_weight * gray_response + self._cfg.edge_weight * edge_response
 
+    @staticmethod
+    def _suppress_response_peak(response: np.ndarray, x: int, y: int, width: int, height: int) -> None:
+        suppress_x1 = max(0, x - width // 2)
+        suppress_y1 = max(0, y - height // 2)
+        suppress_x2 = min(response.shape[1], x + width // 2 + 1)
+        suppress_y2 = min(response.shape[0], y + height // 2 + 1)
+        response[suppress_y1:suppress_y2, suppress_x1:suppress_x2] = -1.0
+
     def _prepare_template_variants(self, template: np.ndarray) -> list[_PreparedTemplate]:
         gray, edges = prepare_match_images(template, self._prep_cfg)
         variants: list[_PreparedTemplate] = []
@@ -152,3 +203,17 @@ class TemplateMatcher(Detector):
             resized_edges = cv.resize(edges, (width, height), interpolation=cv.INTER_AREA)
             variants.append(_PreparedTemplate(resized_gray, resized_edges, width, height))
         return variants
+
+
+def _bbox_iou(a: BBox, b: BBox) -> float:
+    inter_x1 = max(a.x1, b.x1)
+    inter_y1 = max(a.y1, b.y1)
+    inter_x2 = min(a.x2, b.x2)
+    inter_y2 = min(a.y2, b.y2)
+    inter_w = max(0, inter_x2 - inter_x1)
+    inter_h = max(0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    union = a.area() + b.area() - inter_area
+    if union <= 0:
+        return 0.0
+    return inter_area / union

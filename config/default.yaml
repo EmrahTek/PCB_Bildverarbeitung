@@ -26,32 +26,34 @@ board:
   canny_t1: 45
   canny_t2: 135
   min_area_ratio: 0.01
-  max_area_ratio: 0.65
-  min_rectangularity: 0.30
+  max_area_ratio: 0.55
+  min_rectangularity: 0.36
   expected_aspect_ratio: 1.9565
-  min_aspect_ratio: 1.00
-  max_aspect_ratio: 3.40
+  min_aspect_ratio: 1.12
+  max_aspect_ratio: 3.10
   border_margin: 8
   close_kernel: 5
   open_kernel: 5
   search_expansion: 1.45
-  min_score: 0.33
-  min_tracked_score: 0.27
+  min_score: 0.38
+  min_tracked_score: 0.32
+  min_warp_quality_score: 0.40
+  min_tracked_warp_quality_score: 0.34
   verify_gray_weight: 0.65
   verify_edge_weight: 0.35
   verify_resize_width: 300
-  min_objectness_score: 0.34
-  geometry_weight: 0.42
-  verify_weight: 0.23
-  objectness_weight: 0.35
+  min_objectness_score: 0.36
+  geometry_weight: 0.40
+  verify_weight: 0.26
+  objectness_weight: 0.34
   max_reference_templates: 10
 
 board_template:
   enabled: true
   search_resize_width: 960
-  score_threshold: 0.28
+  score_threshold: 0.30
   refresh_interval: 5
-  max_candidates: 5
+  max_candidates: 4
   max_templates: 4
   rotations: [0, 2]
   scales: [0.08, 0.10, 0.12, 0.14, 0.16, 0.18, 0.22, 0.26, 0.30, 0.36, 0.42, 0.50, 0.60, 0.72, 0.86, 1.00]
@@ -72,12 +74,16 @@ components:
     roi: [0.04, 0.10, 0.46, 0.86]
     score_threshold: 0.50
     layout_fallback_score: 0.62
-    layout_fallback_min_board_score: 0.60
+    layout_fallback_min_board_score: 0.64
+    layout_fallback_min_warp_quality: 0.45
+    layout_fallback_min_match_score: 0.36
     min_board_area_ratio: 0.0300
     max_board_area_ratio: 0.300
     min_normalized_aspect_ratio: 1.00
     max_normalized_aspect_ratio: 2.30
     min_board_overlap_ratio: 0.90
+    min_warp_quality_score: 0.36
+    min_score_margin: 0.015
     scales: [0.75, 0.85, 0.95, 1.00, 1.05, 1.15]
     gray_weight: 0.70
     edge_weight: 0.30
@@ -88,12 +94,16 @@ components:
     roi: [0.74, 0.12, 0.98, 0.56]
     score_threshold: 0.50
     layout_fallback_score: 0.60
-    layout_fallback_min_board_score: 0.60
+    layout_fallback_min_board_score: 0.62
+    layout_fallback_min_warp_quality: 0.44
+    layout_fallback_min_match_score: 0.34
     min_board_area_ratio: 0.0040
     max_board_area_ratio: 0.080
     min_normalized_aspect_ratio: 1.00
     max_normalized_aspect_ratio: 1.90
     min_board_overlap_ratio: 0.90
+    min_warp_quality_score: 0.36
+    min_score_margin: 0.012
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
     gray_weight: 0.45
     edge_weight: 0.55
@@ -102,14 +112,18 @@ components:
     min_template_size: 12
   JST_CONNECTOR:
     roi: [0.70, 0.42, 0.98, 0.86]
-    score_threshold: 0.50
-    layout_fallback_score: 0.58
-    layout_fallback_min_board_score: 0.60
+    score_threshold: 0.54
+    layout_fallback_score: 0.56
+    layout_fallback_min_board_score: 0.70
+    layout_fallback_min_warp_quality: 0.52
+    layout_fallback_min_match_score: 0.45
     min_board_area_ratio: 0.0060
     max_board_area_ratio: 0.100
     min_normalized_aspect_ratio: 1.00
     max_normalized_aspect_ratio: 1.90
     min_board_overlap_ratio: 0.90
+    min_warp_quality_score: 0.42
+    min_score_margin: 0.035
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
     gray_weight: 0.45
     edge_weight: 0.55
@@ -118,14 +132,18 @@ components:
     min_template_size: 12
   RESET_BUTTON:
     roi: [0.54, 0.20, 0.72, 0.54]
-    score_threshold: 0.44
-    layout_fallback_score: 0.58
-    layout_fallback_min_board_score: 0.60
+    score_threshold: 0.54
+    layout_fallback_score: 0.0
+    layout_fallback_min_board_score: 0.78
+    layout_fallback_min_warp_quality: 0.62
+    layout_fallback_min_match_score: 0.50
     min_board_area_ratio: 0.0030
     max_board_area_ratio: 0.060
     min_normalized_aspect_ratio: 1.00
     max_normalized_aspect_ratio: 2.20
     min_board_overlap_ratio: 0.90
+    min_warp_quality_score: 0.46
+    min_score_margin: 0.055
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
     gray_weight: 0.50
     edge_weight: 0.50
@@ -136,15 +154,17 @@ components:
 source_profiles:
   video:
     board:
-      max_area_ratio: 0.50
-      min_rectangularity: 0.34
-      min_aspect_ratio: 1.10
-      max_aspect_ratio: 3.10
+      max_area_ratio: 0.48
+      min_rectangularity: 0.38
+      min_aspect_ratio: 1.15
+      max_aspect_ratio: 3.00
       search_expansion: 1.28
-      min_score: 0.36
-      min_tracked_score: 0.30
+      min_score: 0.39
+      min_tracked_score: 0.34
+      min_warp_quality_score: 0.38
+      min_tracked_warp_quality_score: 0.33
       verify_resize_width: 200
-      min_objectness_score: 0.34
+      min_objectness_score: 0.36
       max_reference_templates: 5
     board_template:
       search_resize_width: 640
@@ -155,27 +175,34 @@ source_profiles:
       scales: [0.08, 0.10, 0.12, 0.14, 0.16, 0.20, 0.26, 0.34, 0.44, 0.58, 0.74]
     tracking:
       temporal_min_hits: 2
-      hint_accept_score: 0.52
+      hint_accept_score: 0.56
     components:
       ESP32:
         layout_fallback_min_board_score: 0.53
+        layout_fallback_min_warp_quality: 0.48
+        layout_fallback_min_match_score: 0.20
       USB_PORT:
         layout_fallback_min_board_score: 0.53
+        layout_fallback_min_warp_quality: 0.48
+        layout_fallback_min_match_score: 0.24
       JST_CONNECTOR:
-        layout_fallback_min_board_score: 0.53
+        layout_fallback_min_board_score: 0.66
+        layout_fallback_min_warp_quality: 0.48
       RESET_BUTTON:
-        layout_fallback_min_board_score: 0.53
+        score_threshold: 0.56
   webcam:
     board:
       max_area_ratio: 0.45
-      min_rectangularity: 0.36
+      min_rectangularity: 0.40
       min_aspect_ratio: 1.15
       max_aspect_ratio: 3.00
       search_expansion: 1.30
-      min_score: 0.38
-      min_tracked_score: 0.32
+      min_score: 0.42
+      min_tracked_score: 0.36
+      min_warp_quality_score: 0.40
+      min_tracked_warp_quality_score: 0.35
       verify_resize_width: 180
-      min_objectness_score: 0.36
+      min_objectness_score: 0.38
       max_reference_templates: 5
     board_template:
       search_resize_width: 720
@@ -190,12 +217,20 @@ source_profiles:
       ESP32:
         score_threshold: 0.52
         min_board_area_ratio: 0.0250
+        layout_fallback_min_board_score: 0.55
+        layout_fallback_min_warp_quality: 0.48
+        layout_fallback_min_match_score: 0.22
       USB_PORT:
         score_threshold: 0.54
         min_board_area_ratio: 0.0030
+        layout_fallback_min_board_score: 0.55
+        layout_fallback_min_warp_quality: 0.48
+        layout_fallback_min_match_score: 0.24
       JST_CONNECTOR:
-        score_threshold: 0.52
+        score_threshold: 0.56
         min_board_area_ratio: 0.0050
+        layout_fallback_min_board_score: 0.70
+        layout_fallback_min_warp_quality: 0.52
       RESET_BUTTON:
-        score_threshold: 0.46
+        score_threshold: 0.58
         min_board_area_ratio: 0.0025

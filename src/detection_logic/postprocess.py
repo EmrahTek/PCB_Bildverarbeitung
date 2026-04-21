@@ -67,6 +67,10 @@ class TemporalDetectionFilter:
             raise ValueError("min_hits must be positive")
         self._history: dict[str, deque[Detection | None]] = defaultdict(lambda: deque(maxlen=self.window_size))
 
+    def reset(self) -> None:
+        """Clear all temporal history after the tracked board is lost."""
+        self._history.clear()
+
     def update(self, detections: list[Detection]) -> list[Detection]:
         best_per_label: dict[str, Detection] = {}
         for detection in detections:

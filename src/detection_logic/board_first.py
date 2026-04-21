@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -7,9 +8,11 @@ import numpy as np
 from src.detection_logic.base import Detector
 from src.detection_logic.coarse_board import BoardTemplateLocator
 from src.detection_logic.postprocess import TemporalDetectionFilter, map_bbox_with_homography
-from src.detection_logic.template_match import TemplateMatcher
+from src.detection_logic.template_match import TemplateMatcher, TemplateMatchResult
 from src.preprocessing.geometry import BoardLocalization, BoardLocalizer
 from src.utils.types import BBox, Detection
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,9 @@ class ComponentSpec:
     min_normalized_aspect_ratio: float = 1.0
     max_normalized_aspect_ratio: float = 10.0
     min_board_overlap_ratio: float = 0.85
+    min_warp_quality_score: float = 0.0
+    layout_fallback_min_warp_quality: float = 0.0
+    layout_fallback_min_match_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -90,6 +96,9 @@ class BoardFirstDetector(Detector):
                 self._last_board_bbox = None
                 self._last_coarse_bbox = None
                 self._last_coarse_bboxes = []
+                self._temporal.reset()
+                LOGGER.debug("temporal state reset after %d missing board frames", self._missing_frames)
+                return []
             return self._temporal.update([])
 
         if self._cfg.enable_tracking:
@@ -108,15 +117,26 @@ class BoardFirstDetector(Detector):
             matcher = self._component_matchers.get(spec.label)
             if matcher is None:
                 continue
+            if localization.warp_quality_score < spec.min_warp_quality_score:
+                self._log_component_rejection(
+                    spec,
+                    "low_warp_quality",
+                    localization,
+                    None,
+                )
+                continue
 
             roi_bbox = self._roi_to_bbox(spec.roi, localization.warped.shape)
             crop = localization.warped[roi_bbox.y1:roi_bbox.y2, roi_bbox.x1:roi_bbox.x2]
             if crop.size == 0:
+                self._log_component_rejection(spec, "empty_roi", localization, None)
                 continue
 
-            detection = matcher.detect_best(crop)
+            match_result = self._detect_component_in_roi(matcher, crop)
+            detection = match_result.detection
             if detection is None or detection.score < spec.score_threshold:
-                fallback = self._layout_fallback_detection(spec, localization, frame_shape)
+                self._log_component_rejection(spec, match_result.reason or "low_template_score", localization, match_result)
+                fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result)
                 if fallback is not None:
                     out.append(fallback)
                 continue
@@ -129,12 +149,15 @@ class BoardFirstDetector(Detector):
             )
             mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
             if mapped_bbox is None or mapped_bbox.area() <= 0:
-                fallback = self._layout_fallback_detection(spec, localization, frame_shape)
+                self._log_component_rejection(spec, "homography_mapping_failed", localization, match_result)
+                fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result)
                 if fallback is not None:
                     out.append(fallback)
                 continue
-            if not self._passes_component_sanity(spec, mapped_bbox, localization.bbox):
-                fallback = self._layout_fallback_detection(spec, localization, frame_shape)
+            sanity_reason = self._component_sanity_reason(spec, mapped_bbox, localization.bbox)
+            if sanity_reason is not None:
+                self._log_component_rejection(spec, sanity_reason, localization, match_result)
+                fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result)
                 if fallback is not None:
                     out.append(fallback)
                 continue
@@ -142,25 +165,54 @@ class BoardFirstDetector(Detector):
             out.append(Detection(label=spec.label, score=detection.score, bbox=mapped_bbox))
         return out
 
+    @staticmethod
+    def _detect_component_in_roi(matcher: TemplateMatcher, crop: np.ndarray) -> TemplateMatchResult:
+        if hasattr(matcher, "detect_best_with_stats"):
+            return matcher.detect_best_with_stats(crop)
+        detection = matcher.detect_best(crop)
+        best_score = detection.score if detection is not None else -1.0
+        reason = "" if detection is not None else "low_template_score"
+        return TemplateMatchResult(detection, best_score, -1.0, 1.0, reason)
+
     def _layout_fallback_detection(
         self,
         spec: ComponentSpec,
         localization: BoardLocalization,
         frame_shape: tuple[int, ...],
+        match_result: TemplateMatchResult | None = None,
     ) -> Detection | None:
         if spec.layout_roi is None or spec.layout_fallback_score <= 0.0:
             return None
         if localization.score < spec.layout_fallback_min_board_score:
+            self._log_layout_rejection(spec, "low_board_score", localization, match_result)
+            return None
+        if localization.warp_quality_score < spec.layout_fallback_min_warp_quality:
+            self._log_layout_rejection(spec, "low_warp_quality", localization, match_result)
+            return None
+        best_match_score = match_result.best_score if match_result is not None else -1.0
+        if spec.layout_fallback_min_match_score > 0.0 and best_match_score < spec.layout_fallback_min_match_score:
+            self._log_layout_rejection(spec, "low_layout_match_score", localization, match_result)
             return None
 
         canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
         mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
         if mapped_bbox is None or mapped_bbox.area() <= 0:
+            self._log_layout_rejection(spec, "homography_mapping_failed", localization, match_result)
             return None
-        if not self._passes_component_sanity(spec, mapped_bbox, localization.bbox):
+        sanity_reason = self._component_sanity_reason(spec, mapped_bbox, localization.bbox)
+        if sanity_reason is not None:
+            self._log_layout_rejection(spec, sanity_reason, localization, match_result)
             return None
 
         score = min(float(localization.score), float(spec.layout_fallback_score))
+        LOGGER.debug(
+            "layout fallback accepted: label=%s score=%.3f board_score=%.3f warp_quality=%.3f match=%.3f",
+            spec.label,
+            score,
+            localization.score,
+            localization.warp_quality_score,
+            best_match_score,
+        )
         return Detection(label=spec.label, score=score, bbox=mapped_bbox)
 
     @staticmethod
@@ -174,10 +226,14 @@ class BoardFirstDetector(Detector):
 
     @staticmethod
     def _passes_component_sanity(spec: ComponentSpec, component_bbox: BBox, board_bbox: BBox) -> bool:
+        return BoardFirstDetector._component_sanity_reason(spec, component_bbox, board_bbox) is None
+
+    @staticmethod
+    def _component_sanity_reason(spec: ComponentSpec, component_bbox: BBox, board_bbox: BBox) -> str | None:
         board_area = max(1, board_bbox.area())
         component_area_ratio = component_bbox.area() / board_area
         if component_area_ratio < spec.min_board_area_ratio or component_area_ratio > spec.max_board_area_ratio:
-            return False
+            return "component_area_ratio"
 
         width = max(1, component_bbox.width())
         height = max(1, component_bbox.height())
@@ -187,13 +243,13 @@ class BoardFirstDetector(Detector):
             normalized_aspect < spec.min_normalized_aspect_ratio
             or normalized_aspect > spec.max_normalized_aspect_ratio
         ):
-            return False
+            return "component_aspect_ratio"
 
         overlap_ratio = BoardFirstDetector._overlap_ratio(component_bbox, board_bbox)
         if overlap_ratio < spec.min_board_overlap_ratio:
-            return False
+            return "component_board_overlap"
 
-        return True
+        return None
 
     @staticmethod
     def _overlap_ratio(inner: BBox, outer: BBox) -> float:
@@ -259,4 +315,51 @@ class BoardFirstDetector(Detector):
                 coarse_candidates = [coarse] if coarse is not None else []
             self._last_coarse_bboxes = [candidate.bbox for candidate in coarse_candidates if candidate is not None]
             self._last_coarse_bbox = self._last_coarse_bboxes[0] if self._last_coarse_bboxes else None
+            LOGGER.debug(
+                "coarse board hints refreshed: count=%d scores=%s",
+                len(coarse_candidates),
+                [round(candidate.score, 3) for candidate in coarse_candidates if candidate is not None],
+            )
         return list(self._last_coarse_bboxes)
+
+    @staticmethod
+    def _log_component_rejection(
+        spec: ComponentSpec,
+        reason: str,
+        localization: BoardLocalization,
+        match_result: TemplateMatchResult | None,
+    ) -> None:
+        if not LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        LOGGER.debug(
+            "component rejected: label=%s reason=%s board_score=%.3f warp_quality=%.3f match=%.3f second=%.3f margin=%.3f",
+            spec.label,
+            reason,
+            localization.score,
+            localization.warp_quality_score,
+            match_result.best_score if match_result is not None else -1.0,
+            match_result.second_score if match_result is not None else -1.0,
+            match_result.score_margin if match_result is not None else -1.0,
+        )
+
+    @staticmethod
+    def _log_layout_rejection(
+        spec: ComponentSpec,
+        reason: str,
+        localization: BoardLocalization,
+        match_result: TemplateMatchResult | None,
+    ) -> None:
+        if not LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        LOGGER.debug(
+            "layout fallback rejected: label=%s reason=%s board_score=%.3f min_board=%.3f "
+            "warp_quality=%.3f min_warp=%.3f match=%.3f min_match=%.3f",
+            spec.label,
+            reason,
+            localization.score,
+            spec.layout_fallback_min_board_score,
+            localization.warp_quality_score,
+            spec.layout_fallback_min_warp_quality,
+            match_result.best_score if match_result is not None else -1.0,
+            spec.layout_fallback_min_match_score,
+        )

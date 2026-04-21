@@ -163,6 +163,8 @@ def _build_board_template_locator(config: dict, board_dirs: list[Path], template
             use_clahe=bool(board_template_cfg.get("use_clahe", True)),
             blur_ksize=int(board_template_cfg.get("blur_ksize", 3)),
             min_template_size=int(board_template_cfg.get("min_template_size", 32)),
+            min_score_margin=float(board_template_cfg.get("min_score_margin", 0.0)),
+            second_best_iou_threshold=float(board_template_cfg.get("second_best_iou_threshold", 0.45)),
         ),
     )
     return BoardTemplateLocator(
@@ -215,6 +217,8 @@ def _component_specs_and_matchers(
                 use_clahe=bool(component_cfg["use_clahe"]),
                 blur_ksize=int(component_cfg["blur_ksize"]),
                 min_template_size=int(component_cfg["min_template_size"]),
+                min_score_margin=float(component_cfg.get("min_score_margin", 0.0)),
+                second_best_iou_threshold=float(component_cfg.get("second_best_iou_threshold", 0.45)),
             ),
         )
         roi = (
@@ -252,6 +256,9 @@ def _component_specs_and_matchers(
                 min_normalized_aspect_ratio=float(component_cfg.get("min_normalized_aspect_ratio", 1.0)),
                 max_normalized_aspect_ratio=float(component_cfg.get("max_normalized_aspect_ratio", 10.0)),
                 min_board_overlap_ratio=float(component_cfg.get("min_board_overlap_ratio", 0.85)),
+                min_warp_quality_score=float(component_cfg.get("min_warp_quality_score", 0.0)),
+                layout_fallback_min_warp_quality=float(component_cfg.get("layout_fallback_min_warp_quality", 0.0)),
+                layout_fallback_min_match_score=float(component_cfg.get("layout_fallback_min_match_score", 0.0)),
             )
         )
         matchers[label] = matcher
@@ -312,6 +319,8 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             search_expansion=float(board_cfg["search_expansion"]),
             min_score=float(board_cfg["min_score"]),
             min_tracked_score=float(board_cfg["min_tracked_score"]),
+            min_warp_quality_score=float(board_cfg.get("min_warp_quality_score", 0.38)),
+            min_tracked_warp_quality_score=float(board_cfg.get("min_tracked_warp_quality_score", 0.32)),
             verify_gray_weight=float(board_cfg["verify_gray_weight"]),
             verify_edge_weight=float(board_cfg["verify_edge_weight"]),
             verify_resize_width=int(board_cfg.get("verify_resize_width", 300)),
@@ -326,6 +335,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     specs, matchers = _component_specs_and_matchers(config, prepared_bank, template_rotation_turns)
     LOGGER.info("Enabled component matchers: %s", sorted(matchers.keys()))
 
+    temporal_window = int(tracking_cfg["temporal_window"]) if source in {"webcam", "video"} else 1
     temporal_min_hits = int(tracking_cfg["temporal_min_hits"]) if source in {"webcam", "video"} else 1
     enable_tracking = source in {"webcam", "video"}
     board_template_cfg = config.get("board_template", {})
@@ -337,7 +347,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
         component_specs=specs,
         board_locator=board_locator,
         cfg=BoardFirstConfig(
-            temporal_window=int(tracking_cfg["temporal_window"]),
+            temporal_window=temporal_window,
             temporal_min_hits=temporal_min_hits,
             max_missing_frames=int(tracking_cfg["max_missing_frames"]),
             template_refresh_interval=template_refresh_interval,

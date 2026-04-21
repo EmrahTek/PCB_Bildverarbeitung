@@ -59,3 +59,32 @@ def test_template_matcher_returns_multiple_candidates() -> None:
     assert len(detections) == 2
     assert detections[0].score >= 0.30
     assert detections[1].score >= 0.30
+
+
+def test_template_matcher_rejects_ambiguous_best_score() -> None:
+    template = np.zeros((20, 30), dtype=np.uint8)
+    template[4:16, 5:25] = 220
+
+    scene = np.zeros((120, 180), dtype=np.uint8)
+    scene[20:40, 30:60] = template
+    scene[75:95, 120:150] = template
+
+    matcher = TemplateMatcher(
+        [template],
+        TemplateMatchConfig(
+            label="RESET_BUTTON",
+            score_threshold=0.30,
+            scales=(1.0,),
+            gray_weight=1.0,
+            edge_weight=0.0,
+            use_clahe=False,
+            blur_ksize=1,
+            min_template_size=8,
+            min_score_margin=0.10,
+        ),
+    )
+
+    result = matcher.detect_best_with_stats(scene)
+    assert result.detection is None
+    assert result.reason == "ambiguous_score_margin"
+    assert result.score_margin < 0.10

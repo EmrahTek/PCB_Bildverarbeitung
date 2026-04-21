@@ -42,12 +42,14 @@ class BoardTemplateLocator:
         template_candidates = self._matcher.detect_candidates(
             search_frame,
             max_candidates=max(1, self._cfg.max_candidates * 2),
-            score_threshold=max(0.15, self._cfg.min_score * 0.70),
+            score_threshold=max(0.18, self._cfg.min_score * 0.85),
         )
         candidates.extend(self._scale_detection_back(detection, scale) for detection in template_candidates)
 
         line_candidates = self._line_pair_candidates(search_frame, scale)
         candidates.extend(line_candidates)
+        min_hint_score = max(0.20, self._cfg.min_score * 0.80)
+        candidates = [candidate for candidate in candidates if candidate.score >= min_hint_score]
         return self._nms_candidates(candidates)
 
     def _resize_for_search(self, frame: np.ndarray) -> tuple[np.ndarray, float]:
