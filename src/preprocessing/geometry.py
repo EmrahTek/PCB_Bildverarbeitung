@@ -63,6 +63,13 @@ class BoardLocalization:
     objectness_score: float = 1.0
     pcb_structure_score: float = 1.0
     tightness_score: float = 1.0
+    canonical_structure_score: float = 1.0
+    edge_grid_score: float = 1.0
+    board_identity_score: float = 1.0
+    header_score: float = 1.0
+    corner_hole_score: float = 1.0
+    connector_score: float = 1.0
+    skin_ratio: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -74,11 +81,31 @@ class _BoardCandidate:
     objectness_score: float
     warp_quality_score: float
     pcb_structure_score: float
+    canonical_structure_score: float
+    edge_grid_score: float
+    board_identity_score: float
+    header_score: float
+    corner_hole_score: float
+    connector_score: float
     tightness_score: float
+    skin_ratio: float
     score: float
     homography: np.ndarray
     h_inv: np.ndarray
     warped: np.ndarray
+
+
+@dataclass(frozen=True)
+class _RejectedBoardCandidate:
+    candidate: _BoardCandidate
+    reason: str
+
+
+@dataclass(frozen=True)
+class _BoardSearchResult:
+    best: _BoardCandidate | None
+    candidate_count: int
+    best_rejected: _RejectedBoardCandidate | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +114,11 @@ class _StructureMetrics:
     skin_ratio: float
     canonical_score: float
     header_score: float
+    header_hole_score: float
+    corner_hole_score: float
+    module_score: float
+    connector_score: float
+    identity_score: float
     edge_density_score: float
     edge_grid_score: float
     color_score: float
@@ -172,6 +204,29 @@ def _border_touch_count(bbox: BBox, frame_shape: tuple[int, ...], margin: int) -
     return touches
 
 
+def _bbox_iou(a: BBox, b: BBox) -> float:
+    inter_x1 = max(a.x1, b.x1)
+    inter_y1 = max(a.y1, b.y1)
+    inter_x2 = min(a.x2, b.x2)
+    inter_y2 = min(a.y2, b.y2)
+    inter_w = max(0, inter_x2 - inter_x1)
+    inter_h = max(0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    union = a.area() + b.area() - inter_area
+    if union <= 0:
+        return 0.0
+    return inter_area / union
+
+
+def _bbox_center_shift(a: BBox, b: BBox) -> float:
+    acx = 0.5 * (a.x1 + a.x2)
+    acy = 0.5 * (a.y1 + a.y2)
+    bcx = 0.5 * (b.x1 + b.x2)
+    bcy = 0.5 * (b.y1 + b.y2)
+    diag = max(1.0, float(np.hypot(b.width(), b.height())))
+    return float(np.hypot(acx - bcx, acy - bcy) / diag)
+
+
 def _size_score(area_ratio: float) -> float:
     if area_ratio < 0.01:
         return 0.0
@@ -227,8 +282,14 @@ class BoardLocalizer:
             search_boxes.append(BBox(0, 0, frame.shape[1], frame.shape[0]))
 
         best: _BoardCandidate | None = None
+        best_rejected: _RejectedBoardCandidate | None = None
+        total_candidates = 0
         for search_box in search_boxes:
-            candidate = self._find_best_candidate(frame, search_box)
+            result = self._find_best_candidate(frame, search_box)
+            total_candidates += result.candidate_count
+            if result.best_rejected is not None:
+                best_rejected = self._better_rejected_candidate(best_rejected, result.best_rejected)
+            candidate = result.best
             if candidate is None:
                 continue
             if best is None or candidate.score > best.score:
@@ -237,10 +298,15 @@ class BoardLocalizer:
                 break
 
         if best is None:
-            LOGGER.debug(
-                "board rejected: no candidate hint=%s include_full_frame=%s",
-                hint_bbox is not None,
-                include_full_frame,
+            self._log_board_rejection(
+                "all_candidates_rejected" if total_candidates > 0 else "no_candidate",
+                best_rejected,
+                candidate_found=total_candidates > 0,
+                candidate_count=total_candidates,
+                hint=hint_bbox is not None,
+                include_full_frame=include_full_frame,
+                min_score=min_score,
+                min_warp_quality=min_warp_quality,
             )
             return None
 
@@ -250,23 +316,42 @@ class BoardLocalizer:
                 reasons.append("low_score")
             if best.warp_quality_score < min_warp_quality:
                 reasons.append("low_warp_quality")
-            LOGGER.debug(
-                "board rejected: reason=%s score=%.3f min_score=%.3f warp_quality=%.3f "
-                "min_warp_quality=%.3f geometry=%.3f verify=%.3f objectness=%.3f "
-                "structure=%.3f tightness=%.3f bbox=%s",
+            self._log_board_rejection(
                 "+".join(reasons),
-                best.score,
-                min_score,
-                best.warp_quality_score,
-                min_warp_quality,
-                best.geometry_score,
-                best.verify_score,
-                best.objectness_score,
-                best.pcb_structure_score,
-                best.tightness_score,
-                best.bbox,
+                _RejectedBoardCandidate(best, "+".join(reasons)),
+                candidate_found=True,
+                candidate_count=total_candidates,
+                hint=hint_bbox is not None,
+                include_full_frame=include_full_frame,
+                min_score=min_score,
+                min_warp_quality=min_warp_quality,
             )
             return None
+
+        LOGGER.debug(
+            "board candidate won: score=%.3f min_score=%.3f warp_quality=%.3f min_warp=%.3f "
+            "geometry=%.3f verify=%.3f objectness=%.3f structure=%.3f identity=%.3f "
+            "header=%.3f corner=%.3f connector=%.3f edge_grid=%.3f skin=%.3f "
+            "bbox=%s candidates=%d hint=%s include_full_frame=%s",
+            best.score,
+            min_score,
+            best.warp_quality_score,
+            min_warp_quality,
+            best.geometry_score,
+            best.verify_score,
+            best.objectness_score,
+            best.pcb_structure_score,
+            best.board_identity_score,
+            best.header_score,
+            best.corner_hole_score,
+            best.connector_score,
+            best.edge_grid_score,
+            best.skin_ratio,
+            best.bbox,
+            total_candidates,
+            hint_bbox is not None,
+            include_full_frame,
+        )
 
         return BoardLocalization(
             quad=best.quad,
@@ -281,12 +366,118 @@ class BoardLocalizer:
             objectness_score=best.objectness_score,
             pcb_structure_score=best.pcb_structure_score,
             tightness_score=best.tightness_score,
+            canonical_structure_score=best.canonical_structure_score,
+            edge_grid_score=best.edge_grid_score,
+            board_identity_score=best.board_identity_score,
+            header_score=best.header_score,
+            corner_hole_score=best.corner_hole_score,
+            connector_score=best.connector_score,
+            skin_ratio=best.skin_ratio,
         )
 
-    def _find_best_candidate(self, frame: np.ndarray, search_box: BBox) -> _BoardCandidate | None:
+    def localize_tracked_rescue(
+        self,
+        frame: np.ndarray,
+        previous_bbox: BBox,
+        *,
+        previous_score: float,
+        previous_warp_quality: float,
+    ) -> BoardLocalization | None:
+        """
+        Accept a near-miss board only when it stays close to a strong previous pose.
+
+        This is intentionally narrower than normal localization: it is for live
+        streams where one later validation metric flickers while the board pose is
+        still geometrically plausible and close to the last good detection.
+        """
+        if previous_score < 0.58 or previous_warp_quality < 0.56:
+            return None
+
+        search_box = expand_bbox(previous_bbox, frame.shape, self._cfg.search_expansion)
+        result = self._find_best_candidate(frame, search_box)
+        rejected = result.best_rejected
+        if result.best is not None:
+            threshold_reason = self._tracked_threshold_rejection_reason(result.best)
+            rejected = _RejectedBoardCandidate(result.best, threshold_reason) if threshold_reason is not None else rejected
+        if rejected is None:
+            return None
+
+        candidate = rejected.candidate
+        rescue_reason = self._tracked_rescue_rejection_reason(candidate, rejected.reason, previous_bbox)
+        if rescue_reason is not None:
+            LOGGER.debug(
+                "board tracked rescue rejected: reason=%s original_reason=%s "
+                "score=%.3f geometry=%.3f objectness=%.3f structure=%.3f canonical=%.3f "
+                "identity=%.3f header=%.3f corner=%.3f connector=%.3f edge_grid=%.3f "
+                "tightness=%.3f warp_quality=%.3f skin=%.3f bbox=%s previous_bbox=%s",
+                rescue_reason,
+                rejected.reason,
+                candidate.score,
+                candidate.geometry_score,
+                candidate.objectness_score,
+                candidate.pcb_structure_score,
+                candidate.canonical_structure_score,
+                candidate.board_identity_score,
+                candidate.header_score,
+                candidate.corner_hole_score,
+                candidate.connector_score,
+                candidate.edge_grid_score,
+                candidate.tightness_score,
+                candidate.warp_quality_score,
+                candidate.skin_ratio,
+                candidate.bbox,
+                previous_bbox,
+            )
+            return None
+
+        LOGGER.debug(
+            "board tracked rescue accepted: original_reason=%s score=%.3f geometry=%.3f "
+            "objectness=%.3f structure=%.3f canonical=%.3f identity=%.3f header=%.3f "
+            "corner=%.3f connector=%.3f edge_grid=%.3f tightness=%.3f warp_quality=%.3f "
+            "skin=%.3f bbox=%s previous_bbox=%s",
+            rejected.reason,
+            candidate.score,
+            candidate.geometry_score,
+            candidate.objectness_score,
+            candidate.pcb_structure_score,
+            candidate.canonical_structure_score,
+            candidate.board_identity_score,
+            candidate.header_score,
+            candidate.corner_hole_score,
+            candidate.connector_score,
+            candidate.edge_grid_score,
+            candidate.tightness_score,
+            candidate.warp_quality_score,
+            candidate.skin_ratio,
+            candidate.bbox,
+            previous_bbox,
+        )
+        return BoardLocalization(
+            quad=candidate.quad,
+            bbox=candidate.bbox,
+            homography=candidate.homography,
+            h_inv=candidate.h_inv,
+            warped=candidate.warped,
+            score=max(candidate.score, self._cfg.min_tracked_score),
+            warp_quality_score=max(candidate.warp_quality_score, self._cfg.min_tracked_warp_quality_score),
+            geometry_score=candidate.geometry_score,
+            verify_score=candidate.verify_score,
+            objectness_score=candidate.objectness_score,
+            pcb_structure_score=candidate.pcb_structure_score,
+            tightness_score=candidate.tightness_score,
+            canonical_structure_score=candidate.canonical_structure_score,
+            edge_grid_score=candidate.edge_grid_score,
+            board_identity_score=candidate.board_identity_score,
+            header_score=candidate.header_score,
+            corner_hole_score=candidate.corner_hole_score,
+            connector_score=candidate.connector_score,
+            skin_ratio=candidate.skin_ratio,
+        )
+
+    def _find_best_candidate(self, frame: np.ndarray, search_box: BBox) -> _BoardSearchResult:
         crop = frame[search_box.y1:search_box.y2, search_box.x1:search_box.x2]
         if crop.size == 0:
-            return None
+            return _BoardSearchResult(None, 0)
 
         gray = normalize_gray(to_gray(crop))
         gray = clahe_gray(gray)
@@ -294,7 +485,7 @@ class BoardLocalizer:
 
         candidates = self._candidate_quads(gray, search_box, frame.shape)
         if not candidates:
-            return None
+            return _BoardSearchResult(None, 0)
 
         out_w, out_h = self._cfg.output_size
         dst = np.array(
@@ -303,6 +494,7 @@ class BoardLocalizer:
         )
 
         best: _BoardCandidate | None = None
+        best_rejected: _RejectedBoardCandidate | None = None
         for quad, geometry_score in candidates:
             homography = cv.getPerspectiveTransform(quad, dst)
             warped = cv.warpPerspective(frame, homography, (out_w, out_h))
@@ -310,77 +502,7 @@ class BoardLocalizer:
             warped, homography, quad, tightness_score = self._refine_warp_tightness(frame, warped, homography, quad)
             verify_score = self._verify_board(warped)
             objectness_score = self._board_objectness_score(warped)
-            if objectness_score < self._cfg.min_objectness_score:
-                LOGGER.debug(
-                    "board candidate rejected: reason=low_objectness objectness=%.3f min=%.3f geometry=%.3f verify=%.3f",
-                    objectness_score,
-                    self._cfg.min_objectness_score,
-                    geometry_score,
-                    verify_score,
-                )
-                continue
             structure = self._pcb_structure_metrics(warped)
-            if structure.skin_ratio > self._cfg.max_skin_ratio:
-                LOGGER.debug(
-                    "board candidate rejected: reason=skin_like_region skin=%.3f max=%.3f geometry=%.3f verify=%.3f objectness=%.3f",
-                    structure.skin_ratio,
-                    self._cfg.max_skin_ratio,
-                    geometry_score,
-                    verify_score,
-                    objectness_score,
-                )
-                continue
-            if structure.canonical_score < self._cfg.min_canonical_structure_score:
-                LOGGER.debug(
-                    "board candidate rejected: reason=low_canonical_structure canonical=%.3f min=%.3f "
-                    "structure=%.3f header=%.3f grid=%.3f geometry=%.3f verify=%.3f",
-                    structure.canonical_score,
-                    self._cfg.min_canonical_structure_score,
-                    structure.score,
-                    structure.header_score,
-                    structure.edge_grid_score,
-                    geometry_score,
-                    verify_score,
-                )
-                continue
-            if structure.edge_grid_score < self._cfg.min_edge_grid_score:
-                LOGGER.debug(
-                    "board candidate rejected: reason=low_edge_distribution grid=%.3f min=%.3f "
-                    "structure=%.3f canonical=%.3f header=%.3f geometry=%.3f verify=%.3f",
-                    structure.edge_grid_score,
-                    self._cfg.min_edge_grid_score,
-                    structure.score,
-                    structure.canonical_score,
-                    structure.header_score,
-                    geometry_score,
-                    verify_score,
-                )
-                continue
-            if structure.score < self._cfg.min_pcb_structure_score:
-                LOGGER.debug(
-                    "board candidate rejected: reason=low_pcb_structure structure=%.3f min=%.3f "
-                    "canonical=%.3f header=%.3f grid=%.3f color=%.3f geometry=%.3f verify=%.3f objectness=%.3f",
-                    structure.score,
-                    self._cfg.min_pcb_structure_score,
-                    structure.canonical_score,
-                    structure.header_score,
-                    structure.edge_grid_score,
-                    structure.color_score,
-                    geometry_score,
-                    verify_score,
-                    objectness_score,
-                )
-                continue
-            if tightness_score < self._cfg.min_tightness_score:
-                LOGGER.debug(
-                    "board candidate rejected: reason=loose_warp tightness=%.3f min=%.3f structure=%.3f geometry=%.3f verify=%.3f",
-                    tightness_score,
-                    self._cfg.min_tightness_score,
-                    structure.score,
-                    geometry_score,
-                    verify_score,
-                )
-                continue
             warp_quality_score = self._warp_quality_score(
                 quad,
                 warped,
@@ -399,25 +521,50 @@ class BoardLocalizer:
                 )
             else:
                 base_score = 0.65 * geometry_score + 0.35 * objectness_score
-            score = 0.82 * base_score + 0.18 * warp_quality_score
+            bbox = quad_to_bbox(quad, frame.shape)
+            score = self._candidate_confidence_score(
+                base_score,
+                warp_quality_score,
+                verify_score,
+                structure,
+                bbox,
+                frame.shape,
+            )
             candidate = _BoardCandidate(
                 quad=quad,
-                bbox=quad_to_bbox(quad, frame.shape),
+                bbox=bbox,
                 geometry_score=geometry_score,
                 verify_score=verify_score,
                 objectness_score=objectness_score,
                 warp_quality_score=warp_quality_score,
                 pcb_structure_score=structure.score,
+                canonical_structure_score=structure.canonical_score,
+                edge_grid_score=structure.edge_grid_score,
+                board_identity_score=structure.identity_score,
+                header_score=structure.header_score,
+                corner_hole_score=structure.corner_hole_score,
+                connector_score=structure.connector_score,
                 tightness_score=tightness_score,
+                skin_ratio=structure.skin_ratio,
                 score=score,
                 homography=homography,
                 h_inv=np.linalg.inv(homography),
                 warped=warped,
             )
+
+            rejection_reason = self._candidate_rejection_reason(candidate, structure, frame.shape)
+            if rejection_reason is not None:
+                rejected = _RejectedBoardCandidate(candidate, rejection_reason)
+                best_rejected = self._better_rejected_candidate(best_rejected, rejected)
+                self._log_board_candidate_rejection(rejected, structure)
+                continue
+
             if best is None or candidate.score > best.score:
                 best = candidate
 
-        return best
+            self._log_board_candidate_acceptance(candidate, structure, frame.shape)
+
+        return _BoardSearchResult(best, len(candidates), best_rejected)
 
     def _candidate_quads(
         self,
@@ -502,6 +649,424 @@ class BoardLocalizer:
 
         results.sort(key=lambda item: item[1], reverse=True)
         return results[:8]
+
+    def _candidate_confidence_score(
+        self,
+        base_score: float,
+        warp_quality_score: float,
+        verify_score: float,
+        structure: _StructureMetrics,
+        bbox: BBox,
+        frame_shape: tuple[int, ...],
+    ) -> float:
+        identity = float(np.clip(structure.identity_score, 0.0, 1.0))
+        score = 0.66 * float(np.clip(base_score, 0.0, 1.0)) + 0.17 * warp_quality_score + 0.17 * identity
+        score -= self._skin_score_penalty(structure.skin_ratio, identity, verify_score, warp_quality_score)
+        score -= self._border_clutter_penalty(bbox, frame_shape, structure, verify_score)
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _skin_score_penalty(
+        self,
+        skin_ratio: float,
+        identity_score: float,
+        verify_score: float,
+        warp_quality_score: float,
+    ) -> float:
+        overage = max(0.0, skin_ratio - self._cfg.max_skin_ratio)
+        if overage <= 0.0:
+            return 0.0
+        reference_support = float(np.clip((verify_score - 0.05) / 0.30, 0.0, 1.0)) if self._references else 0.0
+        evidence = float(np.clip(0.58 * identity_score + 0.24 * warp_quality_score + 0.18 * reference_support, 0.0, 1.0))
+        return float(np.clip(overage * (0.24 - 0.18 * evidence), 0.0, 0.18))
+
+    def _border_clutter_penalty(
+        self,
+        bbox: BBox,
+        frame_shape: tuple[int, ...],
+        structure: _StructureMetrics,
+        verify_score: float,
+    ) -> float:
+        touches = _border_touch_count(bbox, frame_shape, self._cfg.border_margin)
+        if touches <= 0:
+            return 0.0
+        identity = structure.identity_score
+        if identity >= 0.50 or verify_score >= 0.24 or structure.header_score >= 0.50:
+            return 0.0
+        weak_layout = max(0.0, 0.50 - identity) + max(0.0, 0.35 - structure.edge_grid_score)
+        return float(np.clip(0.035 * touches + 0.045 * weak_layout, 0.0, 0.14))
+
+    def _candidate_rejection_reason(
+        self,
+        candidate: _BoardCandidate,
+        structure: _StructureMetrics,
+        frame_shape: tuple[int, ...],
+    ) -> str | None:
+        if candidate.objectness_score < self._cfg.min_objectness_score:
+            return "low_objectness"
+        skin_reason = self._skin_hard_rejection_reason(candidate, structure)
+        if skin_reason is not None:
+            return skin_reason
+        if structure.canonical_score < self._cfg.min_canonical_structure_score:
+            return "low_canonical_structure"
+        if structure.edge_grid_score < self._cfg.min_edge_grid_score:
+            return "low_edge_distribution"
+        identity_reason = self._weak_identity_rejection_reason(candidate, structure, frame_shape)
+        if identity_reason is not None:
+            return identity_reason
+        if structure.score < self._cfg.min_pcb_structure_score:
+            return "low_pcb_structure"
+        if candidate.tightness_score < self._cfg.min_tightness_score:
+            return "loose_warp"
+        return None
+
+    def _skin_hard_rejection_reason(
+        self,
+        candidate: _BoardCandidate,
+        structure: _StructureMetrics,
+    ) -> str | None:
+        if candidate.skin_ratio <= self._cfg.max_skin_ratio:
+            return None
+
+        evidence = self._board_evidence_score(candidate, structure)
+        overage = candidate.skin_ratio - self._cfg.max_skin_ratio
+        if (
+            candidate.skin_ratio >= 0.72
+            and evidence < 0.78
+        ):
+            return "skin_dominant_weak_pcb"
+        if (
+            overage > 0.22
+            and evidence < 0.66
+        ):
+            return "skin_like_region"
+        if (
+            overage > 0.08
+            and evidence < 0.50
+        ):
+            return "skin_like_region"
+        if (
+            overage > 0.025
+            and evidence < 0.38
+        ):
+            return "skin_like_region"
+
+        LOGGER.debug(
+            "board skin gate converted to penalty: skin=%.3f max=%.3f evidence=%.3f "
+            "identity=%.3f header=%.3f corner=%.3f connector=%.3f geometry=%.3f "
+            "verify=%.3f objectness=%.3f warp_quality=%.3f",
+            candidate.skin_ratio,
+            self._cfg.max_skin_ratio,
+            evidence,
+            structure.identity_score,
+            structure.header_score,
+            structure.corner_hole_score,
+            structure.connector_score,
+            candidate.geometry_score,
+            candidate.verify_score,
+            candidate.objectness_score,
+            candidate.warp_quality_score,
+        )
+        return None
+
+    def _weak_identity_rejection_reason(
+        self,
+        candidate: _BoardCandidate,
+        structure: _StructureMetrics,
+        frame_shape: tuple[int, ...],
+    ) -> str | None:
+        if self._cfg.min_canonical_structure_score <= 0.0 and self._cfg.min_edge_grid_score <= 0.0 and not self._references:
+            return None
+
+        reference_support = candidate.verify_score >= 0.24
+        strong_cues = sum(
+            [
+                structure.header_score >= 0.46,
+                structure.corner_hole_score >= 0.34,
+                structure.connector_score >= 0.46,
+                structure.module_score >= 0.48,
+                structure.edge_grid_score >= 0.48,
+                reference_support,
+            ]
+        )
+        border_touches = _border_touch_count(candidate.bbox, frame_shape, self._cfg.border_margin)
+
+        if (
+            border_touches > 0
+            and structure.identity_score < 0.46
+            and structure.edge_grid_score < 0.36
+            and not reference_support
+        ):
+            return "background_border_clutter"
+        if (
+            structure.identity_score < 0.32
+            and strong_cues < 2
+            and candidate.verify_score < 0.18
+        ):
+            return "weak_pcb_identity"
+        if (
+            structure.score < max(self._cfg.min_pcb_structure_score + 0.12, 0.30)
+            and strong_cues < 2
+            and candidate.score < 0.60
+        ):
+            return "weak_pcb_identity"
+        return None
+
+    @staticmethod
+    def _board_evidence_score(candidate: _BoardCandidate, structure: _StructureMetrics) -> float:
+        verify_support = float(np.clip((candidate.verify_score - 0.02) / 0.26, 0.0, 1.0))
+        layout_support = max(structure.header_score, structure.corner_hole_score, structure.connector_score)
+        return float(
+            np.clip(
+                0.30 * structure.identity_score
+                + 0.18 * candidate.objectness_score
+                + 0.16 * candidate.warp_quality_score
+                + 0.14 * layout_support
+                + 0.12 * candidate.tightness_score
+                + 0.10 * verify_support,
+                0.0,
+                1.0,
+            )
+        )
+
+    def _tracked_rescue_rejection_reason(
+        self,
+        candidate: _BoardCandidate,
+        original_reason: str,
+        previous_bbox: BBox,
+    ) -> str | None:
+        if original_reason not in {
+            "low_objectness",
+            "skin_like_region",
+            "skin_dominant_weak_pcb",
+            "low_canonical_structure",
+            "low_edge_distribution",
+            "low_pcb_structure",
+            "weak_pcb_identity",
+            "background_border_clutter",
+            "loose_warp",
+            "low_score",
+            "low_warp_quality",
+        }:
+            return "unsupported_reason"
+
+        center_shift = _bbox_center_shift(candidate.bbox, previous_bbox)
+        overlap = _bbox_iou(candidate.bbox, previous_bbox)
+        area_ratio = candidate.bbox.area() / max(1.0, float(previous_bbox.area()))
+        if center_shift > 0.12 and overlap < 0.42:
+            return "not_near_previous_pose"
+        if area_ratio < 0.62 or area_ratio > 1.48:
+            return "area_change_too_large"
+        if candidate.geometry_score < 0.52:
+            return "weak_geometry"
+
+        objectness_floor = self._cfg.min_objectness_score - 0.08
+        if candidate.objectness_score < objectness_floor:
+            return "objectness_too_low"
+        if candidate.pcb_structure_score < max(0.08, self._cfg.min_pcb_structure_score - 0.06):
+            return "structure_too_low"
+        if candidate.tightness_score < max(0.26, self._cfg.min_tightness_score - 0.12):
+            return "tightness_too_low"
+
+        if original_reason == "skin_like_region":
+            if not (
+                candidate.skin_ratio <= max(self._cfg.max_skin_ratio + 0.30, 0.42)
+                and candidate.board_identity_score >= 0.54
+                and candidate.objectness_score >= 0.60
+                and candidate.warp_quality_score >= self._cfg.min_tracked_warp_quality_score
+            ):
+                return "skin_evidence_too_weak"
+        elif original_reason == "skin_dominant_weak_pcb":
+            return "skin_dominant"
+        elif original_reason == "low_objectness":
+            if not (
+                candidate.objectness_score >= objectness_floor
+                and (candidate.verify_score >= 0.22 or candidate.board_identity_score >= 0.42)
+            ):
+                return "objectness_rescue_unsupported"
+        elif original_reason in {"weak_pcb_identity", "background_border_clutter"}:
+            if not (
+                candidate.board_identity_score >= 0.50
+                and candidate.header_score >= 0.34
+                and candidate.edge_grid_score >= 0.34
+            ):
+                return "identity_rescue_unsupported"
+        elif original_reason == "low_canonical_structure":
+            if candidate.canonical_structure_score < self._cfg.min_canonical_structure_score - 0.04:
+                return "canonical_too_low"
+        elif original_reason == "low_edge_distribution":
+            if candidate.edge_grid_score < self._cfg.min_edge_grid_score - 0.04:
+                return "edge_grid_too_low"
+        elif original_reason == "low_pcb_structure":
+            if candidate.pcb_structure_score < self._cfg.min_pcb_structure_score - 0.05:
+                return "pcb_structure_too_low"
+        elif original_reason == "loose_warp":
+            if candidate.warp_quality_score < self._cfg.min_tracked_warp_quality_score:
+                return "warp_quality_too_low"
+
+        if candidate.score < self._cfg.min_tracked_score - 0.05:
+            return "score_too_low"
+        if candidate.warp_quality_score < self._cfg.min_tracked_warp_quality_score - 0.04:
+            return "warp_quality_too_low"
+        return None
+
+    def _tracked_threshold_rejection_reason(self, candidate: _BoardCandidate) -> str | None:
+        if candidate.score < self._cfg.min_tracked_score:
+            return "low_score"
+        if candidate.warp_quality_score < self._cfg.min_tracked_warp_quality_score:
+            return "low_warp_quality"
+        return None
+
+    @staticmethod
+    def _better_rejected_candidate(
+        current: _RejectedBoardCandidate | None,
+        incoming: _RejectedBoardCandidate | None,
+    ) -> _RejectedBoardCandidate | None:
+        if incoming is None:
+            return current
+        if current is None:
+            return incoming
+
+        def rank(rejected: _RejectedBoardCandidate) -> float:
+            candidate = rejected.candidate
+            return (
+                0.34 * candidate.score
+                + 0.22 * candidate.geometry_score
+                + 0.18 * candidate.objectness_score
+                + 0.14 * candidate.board_identity_score
+                + 0.07 * candidate.pcb_structure_score
+                + 0.05 * candidate.warp_quality_score
+            )
+
+        return incoming if rank(incoming) > rank(current) else current
+
+    def _log_board_rejection(
+        self,
+        reason: str,
+        rejected: _RejectedBoardCandidate | None,
+        *,
+        candidate_found: bool,
+        candidate_count: int,
+        hint: bool,
+        include_full_frame: bool,
+        min_score: float,
+        min_warp_quality: float,
+    ) -> None:
+        if rejected is None:
+            LOGGER.debug(
+                "board rejected: reason=%s candidate_found=%s candidate_count=%d hint=%s "
+                "include_full_frame=%s min_score=%.3f min_warp_quality=%.3f",
+                reason,
+                candidate_found,
+                candidate_count,
+                hint,
+                include_full_frame,
+                min_score,
+                min_warp_quality,
+            )
+            return
+
+        candidate = rejected.candidate
+        LOGGER.debug(
+            "board rejected: reason=%s final_candidate_reason=%s candidate_found=%s candidate_count=%d "
+            "best_score=%.3f min_score=%.3f geometry=%.3f verify=%.3f objectness=%.3f "
+            "structure=%.3f canonical=%.3f identity=%.3f header=%.3f corner=%.3f "
+            "connector=%.3f edge_grid=%.3f tightness=%.3f warp_quality=%.3f "
+            "min_warp_quality=%.3f skin=%.3f max_skin=%.3f bbox=%s hint=%s include_full_frame=%s",
+            reason,
+            rejected.reason,
+            candidate_found,
+            candidate_count,
+            candidate.score,
+            min_score,
+            candidate.geometry_score,
+            candidate.verify_score,
+            candidate.objectness_score,
+            candidate.pcb_structure_score,
+            candidate.canonical_structure_score,
+            candidate.board_identity_score,
+            candidate.header_score,
+            candidate.corner_hole_score,
+            candidate.connector_score,
+            candidate.edge_grid_score,
+            candidate.tightness_score,
+            candidate.warp_quality_score,
+            min_warp_quality,
+            candidate.skin_ratio,
+            self._cfg.max_skin_ratio,
+            candidate.bbox,
+            hint,
+            include_full_frame,
+        )
+
+    def _log_board_candidate_rejection(
+        self,
+        rejected: _RejectedBoardCandidate,
+        structure: _StructureMetrics,
+    ) -> None:
+        if not LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        candidate = rejected.candidate
+        LOGGER.debug(
+            "board candidate rejected: reason=%s score=%.3f geometry=%.3f verify=%.3f "
+            "objectness=%.3f structure=%.3f canonical=%.3f identity=%.3f header=%.3f "
+            "header_holes=%.3f corner=%.3f module=%.3f connector=%.3f edge_density=%.3f "
+            "edge_grid=%.3f color=%.3f tightness=%.3f warp_quality=%.3f skin=%.3f "
+            "max_skin=%.3f bbox=%s",
+            rejected.reason,
+            candidate.score,
+            candidate.geometry_score,
+            candidate.verify_score,
+            candidate.objectness_score,
+            candidate.pcb_structure_score,
+            candidate.canonical_structure_score,
+            candidate.board_identity_score,
+            structure.header_score,
+            structure.header_hole_score,
+            structure.corner_hole_score,
+            structure.module_score,
+            structure.connector_score,
+            structure.edge_density_score,
+            candidate.edge_grid_score,
+            structure.color_score,
+            candidate.tightness_score,
+            candidate.warp_quality_score,
+            candidate.skin_ratio,
+            self._cfg.max_skin_ratio,
+            candidate.bbox,
+        )
+
+    def _log_board_candidate_acceptance(
+        self,
+        candidate: _BoardCandidate,
+        structure: _StructureMetrics,
+        frame_shape: tuple[int, ...],
+    ) -> None:
+        if not LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        LOGGER.debug(
+            "board candidate accepted: score=%.3f geometry=%.3f verify=%.3f objectness=%.3f "
+            "structure=%.3f canonical=%.3f identity=%.3f header=%.3f header_holes=%.3f "
+            "corner=%.3f module=%.3f connector=%.3f edge_grid=%.3f tightness=%.3f "
+            "warp_quality=%.3f skin=%.3f border_touches=%d bbox=%s",
+            candidate.score,
+            candidate.geometry_score,
+            candidate.verify_score,
+            candidate.objectness_score,
+            candidate.pcb_structure_score,
+            candidate.canonical_structure_score,
+            candidate.board_identity_score,
+            structure.header_score,
+            structure.header_hole_score,
+            structure.corner_hole_score,
+            structure.module_score,
+            structure.connector_score,
+            candidate.edge_grid_score,
+            candidate.tightness_score,
+            candidate.warp_quality_score,
+            candidate.skin_ratio,
+            _border_touch_count(candidate.bbox, frame_shape, self._cfg.border_margin),
+            candidate.bbox,
+        )
 
     def _prepare_reference(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         out_w, out_h = self._cfg.output_size
@@ -599,11 +1164,13 @@ class BoardLocalizer:
         if not should_refine:
             return warped, homography, quad, tightness
 
+        connector_score = self._right_connector_preservation_score(warped)
         pad_x = int(round(0.035 * bw))
+        pad_right = int(round((0.078 if connector_score >= 0.26 else 0.045) * bw))
         pad_y = int(round(0.045 * bh))
         x1 = max(0, x - pad_x)
         y1 = max(0, y - pad_y)
-        x2 = min(w - 1, x + bw + pad_x)
+        x2 = min(w - 1, x + bw + pad_right)
         y2 = min(h - 1, y + bh + pad_y)
         if x2 <= x1 or y2 <= y1:
             return warped, homography, quad, tightness
@@ -631,18 +1198,23 @@ class BoardLocalizer:
             return warped, homography, quad, tightness
 
         LOGGER.debug(
-            "board warp refined: tightness %.3f -> %.3f coverage=(%.2f, %.2f) aspect_score=%.3f",
+            "board warp refined: tightness %.3f -> %.3f coverage=(%.2f, %.2f) "
+            "aspect_score=%.3f connector_preserve=%.3f right_pad=%.3f",
             tightness,
             refined_tightness,
             coverage_x,
             coverage_y,
             aspect_score,
+            connector_score,
+            pad_right / max(1.0, float(bw)),
         )
         return refined_warped, refined_h, source_pts.astype(np.float32), max(tightness, refined_tightness)
 
     def _foreground_bbox_in_warp(self, warped: np.ndarray) -> tuple[int, int, int, int, float] | None:
         hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
         gray = normalize_gray(to_gray(warped))
+        edges = cv.Canny(clahe_gray(gray), self._cfg.canny_t1, self._cfg.canny_t2)
+        edge_support = cv.dilate(edges, np.ones((5, 5), np.uint8), iterations=1) > 0
         hue = hsv[:, :, 0]
         sat = hsv[:, :, 1]
         val = hsv[:, :, 2]
@@ -650,14 +1222,17 @@ class BoardLocalizer:
 
         dark_board = gray < 155
         saturated_pcb = (sat > 45) & (val < 220)
-        mask = (dark_board | saturated_pcb) & ~skin
+        h, w = gray.shape[:2]
+        right_zone = np.zeros_like(dark_board, dtype=bool)
+        right_zone[:, int(0.62 * w) :] = True
+        connector_like = right_zone & edge_support & (val > 132) & (sat < 155)
+        mask = (dark_board | saturated_pcb | connector_like) & ~skin
         mask_u8 = (mask.astype(np.uint8)) * 255
         kernel = np.ones((7, 7), np.uint8)
         mask_u8 = cv.morphologyEx(mask_u8, cv.MORPH_CLOSE, kernel, iterations=2)
         mask_u8 = cv.morphologyEx(mask_u8, cv.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
 
         contours, _ = cv.findContours(mask_u8, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-        h, w = gray.shape[:2]
         min_area = 0.025 * h * w
         kept = [contour for contour in contours if cv.contourArea(contour) >= min_area]
         if not kept:
@@ -667,6 +1242,21 @@ class BoardLocalizer:
         x, y, bw, bh = cv.boundingRect(points)
         fill_ratio = float(np.mean(mask_u8[y : y + bh, x : x + bw] > 0)) if bw > 0 and bh > 0 else 0.0
         return int(x), int(y), int(bw), int(bh), fill_ratio
+
+    def _right_connector_preservation_score(self, warped: np.ndarray) -> float:
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        gray = normalize_gray(to_gray(warped))
+        edges = cv.Canny(clahe_gray(gray), self._cfg.canny_t1, self._cfg.canny_t2)
+        h, w = gray.shape[:2]
+        region_hsv = hsv[int(0.10 * h) : int(0.88 * h), int(0.64 * w) : int(0.99 * w)]
+        region_edges = edges[int(0.10 * h) : int(0.88 * h), int(0.64 * w) : int(0.99 * w)]
+        if region_hsv.size == 0 or region_edges.size == 0:
+            return 0.0
+        bright_low_sat = float(np.mean((region_hsv[:, :, 2] > 140) & (region_hsv[:, :, 1] < 135)))
+        edge_density = float(np.mean(region_edges > 0))
+        bright_score = float(np.clip((bright_low_sat - 0.025) / 0.20, 0.0, 1.0))
+        edge_score = float(np.clip((edge_density - 0.020) / 0.12, 0.0, 1.0))
+        return float(np.clip(0.58 * bright_score + 0.42 * edge_score, 0.0, 1.0))
 
     def _tightness_score_from_bbox(self, x: int, y: int, bw: int, bh: int, width: int, height: int) -> float:
         coverage_x = bw / max(1.0, float(width))
@@ -741,29 +1331,192 @@ class BoardLocalizer:
             density_score = float(np.clip((density - 0.020) / 0.11, 0.0, 1.0))
             return 0.55 * density_score + 0.45 * peak_score
 
-        top_score = header_band_score(top_band)
-        bottom_score = header_band_score(bottom_band)
-        header_score = 0.55 * max(top_score, bottom_score) + 0.45 * min(top_score, bottom_score)
+        top_edge_score = header_band_score(top_band)
+        bottom_edge_score = header_band_score(bottom_band)
+        header_edge_score = 0.55 * max(top_edge_score, bottom_edge_score) + 0.45 * min(top_edge_score, bottom_edge_score)
+        header_hole_score = self._header_hole_band_score(hsv, edges)
+        header_score = 0.54 * header_edge_score + 0.46 * header_hole_score
 
-        canonical_score = self._canonical_structure_score(warped)
+        corner_hole_score = self._corner_hole_pattern_score(hsv, edges)
+        canonical_score, module_score, connector_score = self._canonical_region_scores(warped)
+        identity_score = float(
+            np.clip(
+                0.24 * canonical_score
+                + 0.18 * module_score
+                + 0.18 * connector_score
+                + 0.18 * header_score
+                + 0.12 * corner_hole_score
+                + 0.10 * edge_grid_score,
+                0.0,
+                1.0,
+            )
+        )
         skin_penalty = float(np.clip(1.0 - skin_ratio / max(1e-6, self._cfg.max_skin_ratio), 0.0, 1.0))
         score = (
-            0.28 * canonical_score
-            + 0.25 * header_score
-            + 0.18 * edge_density_score
-            + 0.14 * edge_grid_score
-            + 0.08 * color_score
-            + 0.07 * skin_penalty
+            0.26 * identity_score
+            + 0.20 * header_score
+            + 0.16 * edge_density_score
+            + 0.13 * edge_grid_score
+            + 0.10 * canonical_score
+            + 0.07 * color_score
+            + 0.05 * corner_hole_score
+            + 0.03 * skin_penalty
         )
         return _StructureMetrics(
             score=float(np.clip(score, 0.0, 1.0)),
             skin_ratio=skin_ratio,
             canonical_score=float(np.clip(canonical_score, 0.0, 1.0)),
             header_score=float(np.clip(header_score, 0.0, 1.0)),
+            header_hole_score=float(np.clip(header_hole_score, 0.0, 1.0)),
+            corner_hole_score=float(np.clip(corner_hole_score, 0.0, 1.0)),
+            module_score=float(np.clip(module_score, 0.0, 1.0)),
+            connector_score=float(np.clip(connector_score, 0.0, 1.0)),
+            identity_score=float(np.clip(identity_score, 0.0, 1.0)),
             edge_density_score=float(np.clip(edge_density_score, 0.0, 1.0)),
             edge_grid_score=float(np.clip(edge_grid_score, 0.0, 1.0)),
             color_score=color_score,
         )
+
+    @staticmethod
+    def _header_hole_band_score(hsv: np.ndarray, edges: np.ndarray) -> float:
+        h, w = edges.shape[:2]
+
+        def band_score(y1f: float, y2f: float) -> float:
+            y1 = int(round(y1f * h))
+            y2 = int(round(y2f * h))
+            x1 = int(round(0.06 * w))
+            x2 = int(round(0.96 * w))
+            band_hsv = hsv[y1:y2, x1:x2]
+            band_edges = edges[y1:y2, x1:x2]
+            if band_hsv.size == 0 or band_edges.size == 0:
+                return 0.0
+
+            val = band_hsv[:, :, 2]
+            sat = band_hsv[:, :, 1]
+            edge_support = cv.dilate(band_edges, np.ones((3, 3), np.uint8), iterations=1) > 0
+            pad_like = edge_support & (val > 85) & (sat < 210)
+            projection = np.mean(pad_like, axis=0).astype(np.float32)
+            if projection.size == 0:
+                return 0.0
+            projection = cv.blur(projection.reshape(1, -1), (9, 1)).reshape(-1)
+            threshold = float(np.mean(projection) + 0.55 * np.std(projection))
+            segments = BoardLocalizer._count_projection_segments(projection, threshold, min_width=2)
+            segment_score = float(np.clip((segments - 5) / 18.0, 0.0, 1.0))
+
+            density = float(np.mean(pad_like))
+            density_score = float(np.clip((density - 0.012) / 0.075, 0.0, 1.0))
+            return float(np.clip(0.62 * segment_score + 0.38 * density_score, 0.0, 1.0))
+
+        top = band_score(0.045, 0.215)
+        bottom = band_score(0.785, 0.955)
+        return float(np.clip(0.58 * max(top, bottom) + 0.42 * min(top, bottom), 0.0, 1.0))
+
+    @staticmethod
+    def _count_projection_segments(projection: np.ndarray, threshold: float, *, min_width: int) -> int:
+        if projection.size == 0:
+            return 0
+        active = projection > threshold
+        count = 0
+        start: int | None = None
+        for idx, is_active in enumerate(active):
+            if is_active and start is None:
+                start = idx
+            elif not is_active and start is not None:
+                if idx - start >= min_width:
+                    count += 1
+                start = None
+        if start is not None and active.size - start >= min_width:
+            count += 1
+        return count
+
+    @staticmethod
+    def _corner_hole_pattern_score(hsv: np.ndarray, edges: np.ndarray) -> float:
+        h, w = edges.shape[:2]
+        rois = [
+            (0.015, 0.025, 0.145, 0.245),
+            (0.855, 0.025, 0.985, 0.245),
+            (0.015, 0.755, 0.145, 0.975),
+            (0.855, 0.755, 0.985, 0.975),
+        ]
+        scores: list[float] = []
+        for x1f, y1f, x2f, y2f in rois:
+            x1 = int(round(x1f * w))
+            y1 = int(round(y1f * h))
+            x2 = int(round(x2f * w))
+            y2 = int(round(y2f * h))
+            roi_hsv = hsv[y1:y2, x1:x2]
+            roi_edges = edges[y1:y2, x1:x2]
+            scores.append(BoardLocalizer._corner_hole_roi_score(roi_hsv, roi_edges))
+        if not scores:
+            return 0.0
+        scores.sort(reverse=True)
+        return float(np.clip(0.52 * np.mean(scores[:2]) + 0.48 * np.mean(scores), 0.0, 1.0))
+
+    @staticmethod
+    def _corner_hole_roi_score(roi_hsv: np.ndarray, roi_edges: np.ndarray) -> float:
+        if roi_hsv.size == 0 or roi_edges.size == 0:
+            return 0.0
+        val = roi_hsv[:, :, 2]
+        sat = roi_hsv[:, :, 1]
+        contrast_mask = ((val < 90) | ((val > 145) & (sat < 150))).astype(np.uint8) * 255
+        edge_mask = cv.dilate(roi_edges, np.ones((3, 3), np.uint8), iterations=1)
+        mask = cv.bitwise_and(contrast_mask, edge_mask)
+        mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
+        contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        roi_area = float(max(1, roi_edges.shape[0] * roi_edges.shape[1]))
+        best = 0.0
+        for contour in contours:
+            area = float(cv.contourArea(contour))
+            area_ratio = area / roi_area
+            if area_ratio < 0.006 or area_ratio > 0.42:
+                continue
+            perimeter = float(cv.arcLength(contour, True))
+            if perimeter <= 1.0:
+                continue
+            x, y, bw, bh = cv.boundingRect(contour)
+            if bw <= 2 or bh <= 2:
+                continue
+            aspect = bw / max(1.0, float(bh))
+            aspect_score = float(np.exp(-1.4 * abs(np.log(max(1e-6, aspect)))))
+            circularity = float(np.clip(4.0 * np.pi * area / max(1.0, perimeter * perimeter), 0.0, 1.0))
+            size_score = float(np.exp(-abs(np.log(max(1e-6, area_ratio) / 0.095))))
+            best = max(best, 0.38 * aspect_score + 0.34 * circularity + 0.28 * size_score)
+        return float(np.clip(best, 0.0, 1.0))
+
+    @staticmethod
+    def _rect_shape_score(
+        mask: np.ndarray,
+        min_area_ratio: float,
+        max_area_ratio: float,
+        min_aspect: float,
+        max_aspect: float,
+    ) -> float:
+        if mask.size == 0:
+            return 0.0
+        mask_u8 = mask.astype(np.uint8) * 255
+        mask_u8 = cv.morphologyEx(mask_u8, cv.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1)
+        contours, _ = cv.findContours(mask_u8, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        roi_area = float(max(1, mask.shape[0] * mask.shape[1]))
+        best = 0.0
+        for contour in contours:
+            area = float(cv.contourArea(contour))
+            area_ratio = area / roi_area
+            if area_ratio < min_area_ratio or area_ratio > max_area_ratio:
+                continue
+            x, y, bw, bh = cv.boundingRect(contour)
+            if bw <= 0 or bh <= 0:
+                continue
+            rectangularity = float(np.clip(area / max(1.0, float(bw * bh)), 0.0, 1.0))
+            aspect = bw / max(1.0, float(bh))
+            normalized_aspect = aspect if aspect >= 1.0 else 1.0 / aspect
+            if normalized_aspect < min_aspect or normalized_aspect > max_aspect:
+                continue
+            target_mid = max(1e-6, 0.5 * (min_area_ratio + max_area_ratio))
+            area_score = float(np.exp(-abs(np.log(max(1e-6, area_ratio) / target_mid))))
+            aspect_mid = max(1e-6, 0.5 * (min_aspect + max_aspect))
+            aspect_score = float(np.exp(-0.8 * abs(np.log(max(1e-6, normalized_aspect) / aspect_mid))))
+            best = max(best, 0.44 * rectangularity + 0.34 * area_score + 0.22 * aspect_score)
+        return float(np.clip(best, 0.0, 1.0))
 
     @staticmethod
     def _edge_grid_score(edges: np.ndarray) -> float:
@@ -847,6 +1600,9 @@ class BoardLocalizer:
         return float(np.clip(quality, 0.0, 1.0))
 
     def _canonical_structure_score(self, warped: np.ndarray) -> float:
+        return self._canonical_region_scores(warped)[0]
+
+    def _canonical_region_scores(self, warped: np.ndarray) -> tuple[float, float, float]:
         hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
         gray = normalize_gray(to_gray(warped))
         gray = clahe_gray(gray)
@@ -861,26 +1617,60 @@ class BoardLocalizer:
             return gray[y1:y2, x1:x2], hsv[y1:y2, x1:x2], edges[y1:y2, x1:x2]
 
         esp_gray, _esp_hsv, esp_edges = roi(0.04, 0.10, 0.48, 0.88)
+        esp_hsv = hsv[int(round(0.10 * h)) : int(round(0.88 * h)), int(round(0.04 * w)) : int(round(0.48 * w))]
         _conn_gray, conn_hsv, conn_edges = roi(0.66, 0.10, 0.98, 0.88)
+        _usb_gray, usb_hsv, usb_edges = roi(0.74, 0.12, 0.98, 0.56)
+        _jst_gray, jst_hsv, jst_edges = roi(0.70, 0.42, 0.98, 0.88)
         if esp_gray.size == 0 or conn_hsv.size == 0:
-            return 0.0
+            return 0.0, 0.0, 0.0
 
         esp_dark_ratio = float(np.mean(esp_gray < 125))
         esp_edge_density = float(np.mean(esp_edges > 0)) if esp_edges.size else 0.0
+        esp_mid_or_dark = (esp_hsv[:, :, 2] < 150) | ((esp_hsv[:, :, 2] < 205) & (esp_hsv[:, :, 1] < 115))
+        esp_shape_score = self._rect_shape_score(esp_mid_or_dark, 0.08, 0.78, 0.70, 3.00)
         connector_bright_ratio = float(np.mean((conn_hsv[:, :, 2] > 145) & (conn_hsv[:, :, 1] < 115)))
         connector_edge_density = float(np.mean(conn_edges > 0)) if conn_edges.size else 0.0
 
-        esp_score = 0.55 * np.clip((esp_dark_ratio - 0.18) / 0.42, 0.0, 1.0) + 0.45 * np.clip(
+        esp_score = 0.42 * np.clip((esp_dark_ratio - 0.18) / 0.42, 0.0, 1.0) + 0.34 * np.clip(
             (esp_edge_density - 0.025) / 0.12,
             0.0,
             1.0,
-        )
-        connector_score = 0.65 * np.clip((connector_bright_ratio - 0.035) / 0.16, 0.0, 1.0) + 0.35 * np.clip(
+        ) + 0.24 * esp_shape_score
+
+        connector_broad_score = 0.54 * np.clip((connector_bright_ratio - 0.035) / 0.16, 0.0, 1.0) + 0.30 * np.clip(
             (connector_edge_density - 0.025) / 0.12,
             0.0,
             1.0,
         )
-        return float(np.clip(0.52 * esp_score + 0.48 * connector_score, 0.0, 1.0))
+
+        def connector_roi_score(region_hsv: np.ndarray, region_edges: np.ndarray, *, min_area: float, max_area: float) -> float:
+            if region_hsv.size == 0 or region_edges.size == 0:
+                return 0.0
+            bright = (region_hsv[:, :, 2] > 132) & (region_hsv[:, :, 1] < 155)
+            bright_ratio = float(np.mean(bright))
+            edge_density = float(np.mean(region_edges > 0))
+            shape = self._rect_shape_score(bright, min_area, max_area, 0.65, 2.80)
+            return float(
+                np.clip(
+                    0.38 * np.clip((bright_ratio - 0.030) / 0.22, 0.0, 1.0)
+                    + 0.34 * np.clip((edge_density - 0.020) / 0.13, 0.0, 1.0)
+                    + 0.28 * shape,
+                    0.0,
+                    1.0,
+                )
+            )
+
+        usb_score = connector_roi_score(usb_hsv, usb_edges, min_area=0.020, max_area=0.60)
+        jst_score = connector_roi_score(jst_hsv, jst_edges, min_area=0.025, max_area=0.68)
+        connector_score = float(
+            np.clip(
+                0.38 * connector_broad_score + 0.36 * max(usb_score, jst_score) + 0.26 * min(usb_score, jst_score),
+                0.0,
+                1.0,
+            )
+        )
+        canonical = float(np.clip(0.52 * esp_score + 0.48 * connector_score, 0.0, 1.0))
+        return canonical, float(np.clip(esp_score, 0.0, 1.0)), connector_score
 
     def _normalize_orientation(self, warped: np.ndarray, homography: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Resolve the remaining 180-degree ambiguity using the reference-board bank."""

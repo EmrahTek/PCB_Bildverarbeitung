@@ -141,6 +141,8 @@ class BoardFirstDetector(Detector):
         tracking_hint = self._last_board_bbox if self._cfg.enable_tracking else None
 
         localization = self._localize_from_hints(frame, coarse_hints, tracking_hint)
+        if localization is None:
+            localization = self._tracked_board_rescue(frame, tracking_hint)
 
         if localization is None:
             self._missing_frames += 1
@@ -212,6 +214,13 @@ class BoardFirstDetector(Detector):
             objectness_score=previous.objectness_score,
             pcb_structure_score=previous.pcb_structure_score,
             tightness_score=previous.tightness_score,
+            canonical_structure_score=previous.canonical_structure_score,
+            edge_grid_score=previous.edge_grid_score,
+            board_identity_score=previous.board_identity_score,
+            header_score=previous.header_score,
+            corner_hole_score=previous.corner_hole_score,
+            connector_score=previous.connector_score,
+            skin_ratio=previous.skin_ratio,
         )
 
     def _stabilize_localization(self, frame: np.ndarray, localization: BoardLocalization) -> BoardLocalization:
@@ -292,6 +301,13 @@ class BoardFirstDetector(Detector):
             objectness_score=localization.objectness_score,
             pcb_structure_score=localization.pcb_structure_score,
             tightness_score=localization.tightness_score,
+            canonical_structure_score=localization.canonical_structure_score,
+            edge_grid_score=localization.edge_grid_score,
+            board_identity_score=localization.board_identity_score,
+            header_score=localization.header_score,
+            corner_hole_score=localization.corner_hole_score,
+            connector_score=localization.connector_score,
+            skin_ratio=localization.skin_ratio,
         )
 
     def _emit_detections(
@@ -306,12 +322,25 @@ class BoardFirstDetector(Detector):
         board_detection = Detection(label="BOARD", score=localization.score, bbox=localization.bbox)
         LOGGER.debug(
             "board bbox generated: source=%s bbox=%s score=%.3f warp_quality=%.3f "
-            "tightness=%.3f quad_area=%.1f components_raw=%d components_stable=%d",
+            "geometry=%.3f verify=%.3f objectness=%.3f structure=%.3f canonical=%.3f "
+            "identity=%.3f header=%.3f corner=%.3f connector=%.3f edge_grid=%.3f "
+            "tightness=%.3f skin=%.3f quad_area=%.1f components_raw=%d components_stable=%d",
             board_source,
             localization.bbox,
             localization.score,
             localization.warp_quality_score,
+            localization.geometry_score,
+            localization.verify_score,
+            localization.objectness_score,
+            localization.pcb_structure_score,
+            localization.canonical_structure_score,
+            localization.board_identity_score,
+            localization.header_score,
+            localization.corner_hole_score,
+            localization.connector_score,
+            localization.edge_grid_score,
             localization.tightness_score,
+            localization.skin_ratio,
             self._quad_area(localization.quad),
             len(component_detections),
             len(stable_components),
@@ -518,6 +547,19 @@ class BoardFirstDetector(Detector):
         if detection is None and match_result.reason == "low_score":
             detection = match_result.candidate
         if detection is None:
+            if spec.label in {"USB_PORT", "JST_CONNECTOR"}:
+                coverage = self._right_connector_coverage_score(localization.warped)
+                LOGGER.debug(
+                    "component evidence missing: label=%s mode=%s state=%s connector_coverage=%.3f "
+                    "board_score=%.3f warp_quality=%.3f window=%s",
+                    spec.label,
+                    mode,
+                    "right_edge_undercovered" if coverage < 0.22 else "no_component_evidence",
+                    coverage,
+                    localization.score,
+                    localization.warp_quality_score,
+                    search_bbox,
+                )
             LOGGER.debug(
                 "component window rejected: label=%s mode=%s reason=%s threshold=%.3f "
                 "match=%.3f visibility=%.3f min_visibility=%.3f window=%s",
@@ -541,6 +583,20 @@ class BoardFirstDetector(Detector):
         local_visibility_score = self._candidate_visibility_score(spec, localization.warped, canonical_bbox)
         visibility_score = self._combine_visibility_score(spec.label, window_visibility_score, local_visibility_score)
         if visibility_score < min_visibility:
+            if spec.label in {"USB_PORT", "JST_CONNECTOR"}:
+                coverage = self._right_connector_coverage_score(localization.warped)
+                LOGGER.debug(
+                    "component evidence weak: label=%s mode=%s state=%s connector_coverage=%.3f "
+                    "visibility=%.3f min_visibility=%.3f board_score=%.3f warp_quality=%.3f",
+                    spec.label,
+                    mode,
+                    "right_edge_undercovered" if coverage < 0.22 else "low_local_evidence",
+                    coverage,
+                    visibility_score,
+                    min_visibility,
+                    localization.score,
+                    localization.warp_quality_score,
+                )
             LOGGER.debug(
                 "component window rejected: label=%s mode=%s reason=low_local_visibility "
                 "visibility=%.3f local=%.3f window_visibility=%.3f min_visibility=%.3f window=%s canonical=%s",
@@ -807,11 +863,30 @@ class BoardFirstDetector(Detector):
         expected_roi = spec.layout_roi or spec.roi
         expected_bbox = self._roi_to_bbox(expected_roi, warped_shape)
         scale_by_label = {
-            "USB_PORT": 0.52,
-            "JST_CONNECTOR": 0.52,
+            "USB_PORT": 0.46,
+            "JST_CONNECTOR": 0.44,
             "RESET_BUTTON": 0.46,
         }
-        return self._center_prior(canonical_bbox, expected_bbox, scale=scale_by_label.get(spec.label, 0.65))
+        center_prior = self._center_prior(canonical_bbox, expected_bbox, scale=scale_by_label.get(spec.label, 0.65))
+        if spec.label in {"USB_PORT", "JST_CONNECTOR"}:
+            zone_prior = self._right_connector_zone_prior(spec.label, canonical_bbox, warped_shape)
+            return float(np.clip(0.68 * center_prior + 0.32 * zone_prior, 0.0, 1.0))
+        return center_prior
+
+    @staticmethod
+    def _right_connector_zone_prior(label: str, canonical_bbox: BBox, warped_shape: tuple[int, ...]) -> float:
+        height, width = warped_shape[:2]
+        cx, cy = BoardFirstDetector._bbox_center(canonical_bbox)
+        x_frac = cx / max(1.0, float(width))
+        y_frac = cy / max(1.0, float(height))
+
+        if label == "USB_PORT":
+            x_score = float(np.clip((x_frac - 0.60) / 0.30, 0.0, 1.0))
+            y_score = float(np.exp(-abs(y_frac - 0.33) / 0.34))
+        else:
+            x_score = float(np.clip((x_frac - 0.58) / 0.32, 0.0, 1.0))
+            y_score = float(np.exp(-abs(y_frac - 0.64) / 0.34))
+        return float(np.clip(0.76 * x_score + 0.24 * y_score, 0.0, 1.0))
 
     @staticmethod
     def _track_position_prior(canonical_bbox: BBox, track: _ComponentTrack | None) -> float:
@@ -927,6 +1002,27 @@ class BoardFirstDetector(Detector):
         if upscale > 1.0 and min_side < 120:
             crop = cv.resize(crop, None, fx=upscale, fy=upscale, interpolation=cv.INTER_CUBIC)
         return self._roi_visibility_score(spec.label, crop)
+
+    @staticmethod
+    def _right_connector_coverage_score(warped: np.ndarray) -> float:
+        if warped.size == 0:
+            return 0.0
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV) if warped.ndim == 3 else None
+        gray = warped if warped.ndim == 2 else np.mean(warped, axis=2).astype(np.uint8)
+        h, w = gray.shape[:2]
+        right_gray = gray[int(0.10 * h) : int(0.88 * h), int(0.62 * w) : int(0.99 * w)]
+        if right_gray.size == 0:
+            return 0.0
+        clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+        edges = cv.Canny(clahe.apply(right_gray), 45, 135)
+        edge_score = float(np.clip((float(np.mean(edges > 0)) - 0.018) / 0.12, 0.0, 1.0))
+        contrast_score = float(np.clip((float(np.std(right_gray)) - 10.0) / 42.0, 0.0, 1.0))
+        bright_score = 0.0
+        if hsv is not None:
+            right_hsv = hsv[int(0.10 * h) : int(0.88 * h), int(0.62 * w) : int(0.99 * w)]
+            bright_low_sat = float(np.mean((right_hsv[:, :, 2] > 140) & (right_hsv[:, :, 1] < 145)))
+            bright_score = float(np.clip((bright_low_sat - 0.025) / 0.20, 0.0, 1.0))
+        return float(np.clip(0.38 * edge_score + 0.32 * contrast_score + 0.30 * bright_score, 0.0, 1.0))
 
     @staticmethod
     def _combine_visibility_score(label: str, window_visibility: float, local_visibility: float) -> float:
@@ -1347,6 +1443,48 @@ class BoardFirstDetector(Detector):
         if full_frame is not None and (best is None or full_frame.score > best.score):
             best = full_frame
         return best
+
+    def _tracked_board_rescue(self, frame: np.ndarray, tracking_hint: BBox | None) -> BoardLocalization | None:
+        if not self._cfg.enable_tracking or tracking_hint is None or self._last_localization is None:
+            return None
+        if not hasattr(self._localizer, "localize_tracked_rescue"):
+            return None
+
+        last = self._last_localization
+        try:
+            rescued = self._localizer.localize_tracked_rescue(
+                frame,
+                tracking_hint,
+                previous_score=last.score,
+                previous_warp_quality=last.warp_quality_score,
+            )
+        except TypeError:
+            return None
+        if rescued is None:
+            return None
+
+        shift = self._normalized_quad_shift(rescued.quad, last.quad, last.bbox)
+        if shift > 2.2 * self._cfg.board_smoothing_max_shift:
+            LOGGER.debug(
+                "board tracked rescue discarded after pose check: shift=%.3f max=%.3f bbox=%s previous=%s",
+                shift,
+                2.2 * self._cfg.board_smoothing_max_shift,
+                rescued.bbox,
+                last.bbox,
+            )
+            return None
+        LOGGER.debug(
+            "board tracked rescue candidate accepted by detector: shift=%.3f score=%.3f "
+            "warp_quality=%.3f identity=%.3f skin=%.3f previous_score=%.3f previous_warp=%.3f",
+            shift,
+            rescued.score,
+            rescued.warp_quality_score,
+            rescued.board_identity_score,
+            rescued.skin_ratio,
+            last.score,
+            last.warp_quality_score,
+        )
+        return rescued
 
     def _maybe_refresh_coarse_hints(self, frame: np.ndarray) -> list[BBox]:
         if self._board_locator is None:
