@@ -15,6 +15,11 @@ from src.utils.types import BBox, Detection
 
 LOGGER = logging.getLogger(__name__)
 
+TRACK_ACQUIRE = "ACQUIRE"
+TRACK_LOCKED = "LOCKED"
+TRACK_LOCAL_SEARCH = "LOCAL_SEARCH"
+TRACK_LOST = "LOST"
+
 
 @dataclass(frozen=True)
 class RelativeROI:
@@ -52,7 +57,10 @@ class ComponentSpec:
     track_max_missing: int = 2
     track_smoothing_alpha: float = 0.55
     position_prior_weight: float = 0.0
+    min_position_prior_acquire: float = 0.0
+    min_position_prior_keep: float = 0.0
     persistence_decay: float = 0.88
+    visibility_upscale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -70,6 +78,11 @@ class BoardFirstConfig:
     board_smoothing_alpha: float = 0.55
     board_smoothing_min_quality: float = 0.58
     board_smoothing_max_shift: float = 0.055
+    board_pose_max_area_growth: float = 0.22
+    board_pose_max_quality_drop: float = 0.16
+    board_pose_max_tightness_drop: float = 0.20
+    board_pose_quality_margin: float = 0.05
+    board_pose_reuse_decay: float = 0.98
 
 
 @dataclass(frozen=True)
@@ -79,6 +92,7 @@ class _ComponentTrack:
     visibility_score: float
     missing_frames: int = 0
     hits: int = 1
+    state: str = TRACK_ACQUIRE
 
 
 @dataclass(frozen=True)
@@ -138,9 +152,8 @@ class BoardFirstDetector(Detector):
                     reused.score,
                     reused.warp_quality_score,
                 )
-                detections = [Detection(label="BOARD", score=reused.score, bbox=reused.bbox)]
-                detections.extend(self._detect_components(reused, frame.shape))
-                return self._temporal.update(detections)
+                component_detections = self._detect_components(reused, frame.shape)
+                return self._emit_detections(reused, component_detections, board_source="reused")
             if self._missing_frames > self._cfg.max_missing_frames:
                 self._last_board_bbox = None
                 self._last_localization = None
@@ -150,7 +163,8 @@ class BoardFirstDetector(Detector):
                 self._temporal.reset()
                 LOGGER.debug("temporal state reset after %d missing board frames", self._missing_frames)
                 return []
-            return self._temporal.update([])
+            self._temporal.update([])
+            return []
 
         localization = self._stabilize_localization(frame, localization)
         if self._cfg.enable_tracking:
@@ -162,9 +176,8 @@ class BoardFirstDetector(Detector):
             self._component_tracks.clear()
         self._missing_frames = 0
 
-        detections = [Detection(label="BOARD", score=localization.score, bbox=localization.bbox)]
-        detections.extend(self._detect_components(localization, frame.shape))
-        return self._temporal.update(detections)
+        component_detections = self._detect_components(localization, frame.shape)
+        return self._emit_detections(localization, component_detections, board_source="pose")
 
     def _reuse_last_localization(self, frame: np.ndarray) -> BoardLocalization | None:
         if not self._cfg.enable_tracking or self._last_localization is None:
@@ -175,31 +188,63 @@ class BoardFirstDetector(Detector):
         if last.warp_quality_score < self._cfg.reuse_min_warp_quality:
             return None
 
-        out_h, out_w = last.warped.shape[:2]
-        warped = cv.warpPerspective(frame, last.homography, (out_w, out_h))
         decay = float(np.clip(self._cfg.reuse_score_decay, 0.50, 1.0)) ** max(1, self._missing_frames)
+        return self._localization_from_previous_pose(frame, last, decay)
+
+    def _localization_from_previous_pose(
+        self,
+        frame: np.ndarray,
+        previous: BoardLocalization,
+        decay: float,
+    ) -> BoardLocalization:
+        out_h, out_w = previous.warped.shape[:2]
+        warped = cv.warpPerspective(frame, previous.homography, (out_w, out_h))
         return BoardLocalization(
-            quad=last.quad,
-            bbox=last.bbox,
-            homography=last.homography,
-            h_inv=last.h_inv,
+            quad=previous.quad,
+            bbox=previous.bbox,
+            homography=previous.homography,
+            h_inv=previous.h_inv,
             warped=warped,
-            score=last.score * decay,
-            warp_quality_score=last.warp_quality_score * decay,
-            geometry_score=last.geometry_score,
-            verify_score=last.verify_score,
-            objectness_score=last.objectness_score,
-            pcb_structure_score=last.pcb_structure_score,
-            tightness_score=last.tightness_score,
+            score=previous.score * decay,
+            warp_quality_score=previous.warp_quality_score * decay,
+            geometry_score=previous.geometry_score,
+            verify_score=previous.verify_score,
+            objectness_score=previous.objectness_score,
+            pcb_structure_score=previous.pcb_structure_score,
+            tightness_score=previous.tightness_score,
         )
 
     def _stabilize_localization(self, frame: np.ndarray, localization: BoardLocalization) -> BoardLocalization:
         if not self._cfg.enable_tracking or self._last_localization is None:
             return localization
-        if localization.warp_quality_score < self._cfg.board_smoothing_min_quality:
-            return localization
         last = self._last_localization
         if last.warp_quality_score < self._cfg.board_smoothing_min_quality:
+            return localization
+
+        reject_reason = self._pose_rejection_reason(localization, last)
+        if reject_reason is not None:
+            reused = self._localization_from_previous_pose(
+                frame,
+                last,
+                float(np.clip(self._cfg.board_pose_reuse_decay, 0.70, 1.0)),
+            )
+            LOGGER.debug(
+                "board pose rejected and previous pose reused: reason=%s current_bbox=%s previous_bbox=%s "
+                "current_score=%.3f previous_score=%.3f current_warp=%.3f previous_warp=%.3f "
+                "current_tightness=%.3f previous_tightness=%.3f",
+                reject_reason,
+                localization.bbox,
+                last.bbox,
+                localization.score,
+                last.score,
+                localization.warp_quality_score,
+                last.warp_quality_score,
+                localization.tightness_score,
+                last.tightness_score,
+            )
+            return reused
+
+        if localization.warp_quality_score < self._cfg.board_smoothing_min_quality:
             return localization
 
         shift = self._normalized_quad_shift(localization.quad, last.quad, last.bbox)
@@ -249,6 +294,30 @@ class BoardFirstDetector(Detector):
             tightness_score=localization.tightness_score,
         )
 
+    def _emit_detections(
+        self,
+        localization: BoardLocalization,
+        component_detections: list[Detection],
+        *,
+        board_source: str,
+    ) -> list[Detection]:
+        stable_components = self._temporal.update(component_detections)
+        stable_components.sort(key=lambda det: det.label)
+        board_detection = Detection(label="BOARD", score=localization.score, bbox=localization.bbox)
+        LOGGER.debug(
+            "board bbox generated: source=%s bbox=%s score=%.3f warp_quality=%.3f "
+            "tightness=%.3f quad_area=%.1f components_raw=%d components_stable=%d",
+            board_source,
+            localization.bbox,
+            localization.score,
+            localization.warp_quality_score,
+            localization.tightness_score,
+            self._quad_area(localization.quad),
+            len(component_detections),
+            len(stable_components),
+        )
+        return [board_detection, *stable_components]
+
     def _detect_components(self, localization: BoardLocalization, frame_shape: tuple[int, ...]) -> list[Detection]:
         out: list[Detection] = []
         for spec in self._component_specs:
@@ -272,6 +341,7 @@ class BoardFirstDetector(Detector):
                 continue
 
             track = self._component_tracks.get(spec.label) if self._cfg.enable_tracking else None
+            active_track = self._track_is_active(spec, track)
             candidate = self._detect_component_with_lock(
                 spec,
                 matcher,
@@ -281,6 +351,16 @@ class BoardFirstDetector(Detector):
             )
 
             if candidate is None:
+                if active_track:
+                    LOGGER.debug(
+                        "component full search deferred: label=%s state=%s missing=%d previous=%s",
+                        spec.label,
+                        track.state if track is not None else TRACK_LOST,
+                        track.missing_frames if track is not None else -1,
+                        track.canonical_bbox if track is not None else None,
+                    )
+                    self._mark_component_missing(spec)
+                    continue
                 fallback_crop = localization.warped[roi_bbox.y1:roi_bbox.y2, roi_bbox.x1:roi_bbox.x2]
                 visibility_score = self._roi_visibility_score(spec.label, fallback_crop) if fallback_crop.size else -1.0
                 match_result = self._detect_component_in_roi(matcher, fallback_crop) if fallback_crop.size else None
@@ -303,6 +383,9 @@ class BoardFirstDetector(Detector):
                     candidate.match_result,
                     candidate.visibility_score,
                 )
+                if active_track:
+                    self._mark_component_missing(spec)
+                    continue
                 fallback = self._layout_fallback_detection(
                     spec,
                     localization,
@@ -323,6 +406,9 @@ class BoardFirstDetector(Detector):
                     candidate.match_result,
                     candidate.visibility_score,
                 )
+                if active_track:
+                    self._mark_component_missing(spec)
+                    continue
                 fallback = self._layout_fallback_detection(
                     spec,
                     localization,
@@ -361,11 +447,14 @@ class BoardFirstDetector(Detector):
         roi_bbox: BBox,
         track: _ComponentTrack | None,
     ) -> _ComponentCandidate | None:
-        if self._cfg.enable_tracking and track is not None and track.missing_frames <= spec.track_max_missing:
+        if self._track_is_active(spec, track):
             locked_window = self._locked_search_window(track.canonical_bbox, roi_bbox, localization.warped.shape, spec)
+            search_state = TRACK_LOCAL_SEARCH if track.missing_frames > 0 or track.state == TRACK_LOCAL_SEARCH else TRACK_LOCKED
+            mode = "local_search" if search_state == TRACK_LOCAL_SEARCH else "locked"
             LOGGER.debug(
-                "component local search: label=%s window=%s previous=%s missing=%d",
+                "component local search: label=%s state=%s window=%s previous=%s missing=%d",
                 spec.label,
+                search_state,
                 locked_window,
                 track.canonical_bbox,
                 track.missing_frames,
@@ -377,7 +466,7 @@ class BoardFirstDetector(Detector):
                 locked_window,
                 threshold=self._keep_score_threshold(spec),
                 min_visibility=self._keep_min_visibility_score(spec),
-                mode="locked",
+                mode=mode,
                 track=track,
             )
             if keep_candidate is not None:
@@ -386,6 +475,14 @@ class BoardFirstDetector(Detector):
             persisted = self._persistent_component_candidate(spec, localization, locked_window, track)
             if persisted is not None:
                 return persisted
+
+            LOGGER.debug(
+                "component local search miss: label=%s state=%s missing=%d full_search=deferred",
+                spec.label,
+                search_state,
+                track.missing_frames,
+            )
+            return None
 
         return self._match_component_window(
             spec,
@@ -415,16 +512,11 @@ class BoardFirstDetector(Detector):
         if crop.size == 0:
             return None
 
-        visibility_score = self._roi_visibility_score(spec.label, crop)
+        window_visibility_score = self._roi_visibility_score(spec.label, crop)
         match_result = self._detect_component_in_roi(matcher, crop)
-        detection = self._select_detection_with_visibility(
-            spec,
-            match_result,
-            visibility_score,
-            localization.warp_quality_score,
-            threshold=threshold,
-            min_visibility=min_visibility,
-        )
+        detection = match_result.detection
+        if detection is None and match_result.reason == "low_score":
+            detection = match_result.candidate
         if detection is None:
             LOGGER.debug(
                 "component window rejected: label=%s mode=%s reason=%s threshold=%.3f "
@@ -434,7 +526,7 @@ class BoardFirstDetector(Detector):
                 match_result.reason or "low_score",
                 threshold,
                 match_result.best_score,
-                visibility_score,
+                window_visibility_score,
                 min_visibility,
                 search_bbox,
             )
@@ -446,7 +538,61 @@ class BoardFirstDetector(Detector):
             search_bbox.x1 + detection.bbox.x2,
             search_bbox.y1 + detection.bbox.y2,
         )
-        score = self._score_with_position_prior(spec, canonical_bbox, detection.score, localization.warped.shape, track)
+        local_visibility_score = self._candidate_visibility_score(spec, localization.warped, canonical_bbox)
+        visibility_score = self._combine_visibility_score(spec.label, window_visibility_score, local_visibility_score)
+        if visibility_score < min_visibility:
+            LOGGER.debug(
+                "component window rejected: label=%s mode=%s reason=low_local_visibility "
+                "visibility=%.3f local=%.3f window_visibility=%.3f min_visibility=%.3f window=%s canonical=%s",
+                spec.label,
+                mode,
+                visibility_score,
+                local_visibility_score,
+                window_visibility_score,
+                min_visibility,
+                search_bbox,
+                canonical_bbox,
+            )
+            return None
+
+        layout_prior, track_prior, position_prior = self._position_priors(
+            spec,
+            canonical_bbox,
+            localization.warped.shape,
+            track,
+        )
+        min_position_prior = self._min_position_prior(spec, mode, track)
+        if position_prior < min_position_prior:
+            LOGGER.debug(
+                "component window rejected: label=%s mode=%s reason=low_position_prior "
+                "prior=%.3f min_prior=%.3f layout=%.3f track=%.3f window=%s canonical=%s",
+                spec.label,
+                mode,
+                position_prior,
+                min_position_prior,
+                layout_prior,
+                track_prior,
+                search_bbox,
+                canonical_bbox,
+            )
+            return None
+
+        raw_score = match_result.best_score if match_result.best_score >= 0.0 else detection.score
+        fused_score = self._fused_component_score(
+            raw_score,
+            visibility_score,
+            spec.visibility_weight,
+            localization.warp_quality_score,
+            spec.warp_quality_weight,
+        )
+        score = self._score_with_position_prior(
+            spec,
+            canonical_bbox,
+            fused_score,
+            localization.warped.shape,
+            track,
+            priors=(layout_prior, track_prior, position_prior),
+        )
         if score < threshold:
             LOGGER.debug(
                 "component window rejected: label=%s mode=%s reason=low_prior_fused_score "
@@ -455,7 +601,7 @@ class BoardFirstDetector(Detector):
                 mode,
                 score,
                 threshold,
-                detection.score,
+                raw_score,
                 search_bbox,
                 canonical_bbox,
             )
@@ -463,12 +609,16 @@ class BoardFirstDetector(Detector):
 
         LOGGER.debug(
             "component window accepted: label=%s mode=%s score=%.3f raw=%.3f visibility=%.3f "
-            "match=%.3f threshold=%.3f window=%s canonical=%s",
+            "local_visibility=%.3f window_visibility=%.3f position_prior=%.3f match=%.3f "
+            "threshold=%.3f window=%s canonical=%s",
             spec.label,
             mode,
             score,
-            detection.score,
+            raw_score,
             visibility_score,
+            local_visibility_score,
+            window_visibility_score,
+            position_prior,
             match_result.best_score,
             threshold,
             search_bbox,
@@ -489,22 +639,66 @@ class BoardFirstDetector(Detector):
             return None
 
         crop = localization.warped[search_bbox.y1:search_bbox.y2, search_bbox.x1:search_bbox.x2]
-        visibility_score = self._roi_visibility_score(spec.label, crop) if crop.size else 0.0
+        window_visibility_score = self._roi_visibility_score(spec.label, crop) if crop.size else 0.0
+        local_visibility_score = self._candidate_visibility_score(spec, localization.warped, track.canonical_bbox)
+        visibility_score = self._combine_visibility_score(spec.label, window_visibility_score, local_visibility_score)
         min_visibility = self._keep_min_visibility_score(spec)
         if visibility_score < min_visibility:
+            LOGGER.debug(
+                "component persistence rejected: label=%s reason=low_visibility visibility=%.3f "
+                "local=%.3f window=%.3f min_visibility=%.3f",
+                spec.label,
+                visibility_score,
+                local_visibility_score,
+                window_visibility_score,
+                min_visibility,
+            )
+            return None
+
+        layout_prior, track_prior, position_prior = self._position_priors(
+            spec,
+            track.canonical_bbox,
+            localization.warped.shape,
+            track,
+        )
+        min_position_prior = self._min_position_prior(spec, "persistent", track)
+        if position_prior < min_position_prior:
+            LOGGER.debug(
+                "component persistence rejected: label=%s reason=low_position_prior prior=%.3f "
+                "min_prior=%.3f layout=%.3f track=%.3f",
+                spec.label,
+                position_prior,
+                min_position_prior,
+                layout_prior,
+                track_prior,
+            )
             return None
 
         score = float(np.clip(track.score * spec.persistence_decay, 0.0, 1.0))
         if score < self._keep_score_threshold(spec):
+            LOGGER.debug(
+                "component persistence rejected: label=%s reason=low_decayed_score score=%.3f threshold=%.3f "
+                "previous=%.3f decay=%.3f",
+                spec.label,
+                score,
+                self._keep_score_threshold(spec),
+                track.score,
+                spec.persistence_decay,
+            )
             return None
 
         LOGGER.debug(
-            "component kept by persistence: label=%s score=%.3f previous=%.3f visibility=%.3f "
+            "component kept by persistence: label=%s score=%.3f previous=%.3f decay=%.3f "
+            "visibility=%.3f local_visibility=%.3f window_visibility=%.3f position_prior=%.3f "
             "missing=%d canonical=%s",
             spec.label,
             score,
             track.score,
+            spec.persistence_decay,
             visibility_score,
+            local_visibility_score,
+            window_visibility_score,
+            position_prior,
             track.missing_frames,
             track.canonical_bbox,
         )
@@ -577,13 +771,15 @@ class BoardFirstDetector(Detector):
         score: float,
         warped_shape: tuple[int, ...],
         track: _ComponentTrack | None,
+        priors: tuple[float, float, float] | None = None,
     ) -> float:
-        weight = float(np.clip(spec.position_prior_weight, 0.0, 0.20))
+        weight = float(np.clip(spec.position_prior_weight, 0.0, 0.35))
         if weight <= 0.0:
             return score
-        layout_prior = self._layout_position_prior(spec, canonical_bbox, warped_shape)
-        track_prior = self._track_position_prior(canonical_bbox, track) if track is not None else 0.0
-        prior = max(layout_prior, track_prior)
+        if priors is None:
+            layout_prior, track_prior, prior = self._position_priors(spec, canonical_bbox, warped_shape, track)
+        else:
+            layout_prior, track_prior, prior = priors
         fused = (1.0 - weight) * score + weight * prior
         LOGGER.debug(
             "component position prior: label=%s raw=%.3f prior=%.3f layout=%.3f track=%.3f fused=%.3f",
@@ -596,16 +792,38 @@ class BoardFirstDetector(Detector):
         )
         return float(np.clip(fused, 0.0, 1.0))
 
+    def _position_priors(
+        self,
+        spec: ComponentSpec,
+        canonical_bbox: BBox,
+        warped_shape: tuple[int, ...],
+        track: _ComponentTrack | None,
+    ) -> tuple[float, float, float]:
+        layout_prior = self._layout_position_prior(spec, canonical_bbox, warped_shape)
+        track_prior = self._track_position_prior(canonical_bbox, track) if track is not None else 0.0
+        return layout_prior, track_prior, max(layout_prior, track_prior)
+
     def _layout_position_prior(self, spec: ComponentSpec, canonical_bbox: BBox, warped_shape: tuple[int, ...]) -> float:
         expected_roi = spec.layout_roi or spec.roi
         expected_bbox = self._roi_to_bbox(expected_roi, warped_shape)
-        return self._center_prior(canonical_bbox, expected_bbox, scale=0.65)
+        scale_by_label = {
+            "USB_PORT": 0.52,
+            "JST_CONNECTOR": 0.52,
+            "RESET_BUTTON": 0.46,
+        }
+        return self._center_prior(canonical_bbox, expected_bbox, scale=scale_by_label.get(spec.label, 0.65))
 
     @staticmethod
     def _track_position_prior(canonical_bbox: BBox, track: _ComponentTrack | None) -> float:
         if track is None:
             return 0.0
-        return BoardFirstDetector._center_prior(canonical_bbox, track.canonical_bbox, scale=0.75)
+        return BoardFirstDetector._center_prior(canonical_bbox, track.canonical_bbox, scale=0.62)
+
+    @staticmethod
+    def _min_position_prior(spec: ComponentSpec, mode: str, track: _ComponentTrack | None) -> float:
+        if track is not None and mode in {"locked", "local_search", "persistent"}:
+            return float(np.clip(spec.min_position_prior_keep, 0.0, 1.0))
+        return float(np.clip(spec.min_position_prior_acquire, 0.0, 1.0))
 
     @staticmethod
     def _center_prior(candidate: BBox, expected: BBox, *, scale: float) -> float:
@@ -641,21 +859,32 @@ class BoardFirstDetector(Detector):
             self._log_layout_rejection(spec, "low_warp_quality", localization, match_result, visibility_score)
             return None
         best_match_score = match_result.best_score if match_result is not None else -1.0
-        if visibility_score < spec.layout_fallback_min_visibility_score:
-            self._log_layout_rejection(spec, "low_layout_visibility", localization, match_result, visibility_score)
+        canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
+        local_visibility_score = self._candidate_visibility_score(spec, localization.warped, canonical_bbox)
+        evidence_visibility = self._combine_visibility_score(
+            spec.label,
+            max(0.0, visibility_score),
+            local_visibility_score,
+        )
+        if evidence_visibility < spec.layout_fallback_min_visibility_score:
+            self._log_layout_rejection(spec, "low_layout_visibility", localization, match_result, evidence_visibility)
             return None
         fallback_evidence = self._fused_component_score(
             best_match_score,
-            max(0.0, visibility_score),
+            max(0.0, evidence_visibility),
             max(spec.visibility_weight, 0.35),
             localization.warp_quality_score,
             spec.warp_quality_weight,
         )
         if spec.layout_fallback_min_match_score > 0.0 and fallback_evidence < spec.layout_fallback_min_match_score:
-            self._log_layout_rejection(spec, "low_layout_match_score", localization, match_result, visibility_score)
+            self._log_layout_rejection(spec, "low_layout_match_score", localization, match_result, evidence_visibility)
             return None
 
-        canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
+        layout_prior, _track_prior, position_prior = self._position_priors(spec, canonical_bbox, localization.warped.shape, None)
+        min_position_prior = float(np.clip(spec.min_position_prior_acquire, 0.0, 1.0))
+        if position_prior < min_position_prior:
+            self._log_layout_rejection(spec, "low_position_prior", localization, match_result, evidence_visibility)
+            return None
         mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
         if mapped_bbox is None or mapped_bbox.area() <= 0:
             self._log_layout_rejection(spec, "homography_mapping_failed", localization, match_result)
@@ -668,22 +897,57 @@ class BoardFirstDetector(Detector):
         score = min(float(localization.score), float(spec.layout_fallback_score))
         LOGGER.debug(
             "layout fallback accepted: label=%s score=%.3f board_score=%.3f warp_quality=%.3f "
-            "match=%.3f visibility=%.3f evidence=%.3f",
+            "match=%.3f visibility=%.3f local_visibility=%.3f position_prior=%.3f layout_prior=%.3f evidence=%.3f",
             spec.label,
             score,
             localization.score,
             localization.warp_quality_score,
             best_match_score,
-            visibility_score,
+            evidence_visibility,
+            local_visibility_score,
+            position_prior,
+            layout_prior,
             fallback_evidence,
         )
         return Detection(label=spec.label, score=score, bbox=mapped_bbox)
+
+    def _candidate_visibility_score(self, spec: ComponentSpec, warped: np.ndarray, canonical_bbox: BBox) -> float:
+        expansion_by_label = {
+            "ESP32": 0.12,
+            "USB_PORT": 0.22,
+            "JST_CONNECTOR": 0.24,
+            "RESET_BUTTON": 0.45,
+        }
+        expanded = self._expand_bbox(canonical_bbox, expansion_by_label.get(spec.label, 0.20), warped.shape)
+        crop = warped[expanded.y1:expanded.y2, expanded.x1:expanded.x2]
+        if crop.size == 0:
+            return 0.0
+        upscale = float(np.clip(spec.visibility_upscale, 1.0, 3.0))
+        min_side = min(crop.shape[:2])
+        if upscale > 1.0 and min_side < 120:
+            crop = cv.resize(crop, None, fx=upscale, fy=upscale, interpolation=cv.INTER_CUBIC)
+        return self._roi_visibility_score(spec.label, crop)
+
+    @staticmethod
+    def _combine_visibility_score(label: str, window_visibility: float, local_visibility: float) -> float:
+        local_weight = {
+            "ESP32": 0.28,
+            "USB_PORT": 0.72,
+            "JST_CONNECTOR": 0.74,
+            "RESET_BUTTON": 0.84,
+        }.get(label, 0.68)
+        window_visibility = max(0.0, float(window_visibility))
+        local_visibility = max(0.0, float(local_visibility))
+        return float(np.clip(local_weight * local_visibility + (1.0 - local_weight) * window_visibility, 0.0, 1.0))
 
     @staticmethod
     def _roi_visibility_score(label: str, crop: np.ndarray) -> float:
         if crop.size == 0:
             return 0.0
         gray = crop if crop.ndim == 2 else np.mean(crop, axis=2).astype(np.uint8)
+        if label in {"USB_PORT", "JST_CONNECTOR", "RESET_BUTTON"}:
+            clahe = cv.createCLAHE(clipLimit=2.2, tileGridSize=(4, 4))
+            gray = clahe.apply(gray)
         contrast = float(np.std(gray))
         contrast_score = float(np.clip((contrast - 14.0) / 48.0, 0.0, 1.0))
         gy, gx = np.gradient(gray.astype(np.float32))
@@ -743,8 +1007,8 @@ class BoardFirstDetector(Detector):
             small_edge_score = float(np.clip((local_edges - 0.035) / 0.16, 0.0, 1.0))
             bright_shape = BoardFirstDetector._roi_rect_shape_score(gray > 135, 0.006, 0.28, 0.65, 2.20)
             dark_shape = BoardFirstDetector._roi_rect_shape_score(gray < 115, 0.006, 0.28, 0.65, 2.20)
-            shape_score = max(bright_shape, dark_shape)
-            return float(np.clip(0.34 * contrast_score + 0.36 * small_edge_score + 0.30 * shape_score, 0.0, 1.0))
+            shape_score = max(bright_shape, dark_shape, BoardFirstDetector._small_button_shape_score(gray))
+            return float(np.clip(0.26 * contrast_score + 0.32 * small_edge_score + 0.42 * shape_score, 0.0, 1.0))
         return float(np.clip(0.55 * contrast_score + 0.45 * edge_score, 0.0, 1.0))
 
     @staticmethod
@@ -782,6 +1046,33 @@ class BoardFirstDetector(Detector):
             best = max(best, 0.45 * rectangularity + 0.35 * area_score + 0.20 * aspect_score)
         return float(np.clip(best, 0.0, 1.0))
 
+    @staticmethod
+    def _small_button_shape_score(gray: np.ndarray) -> float:
+        if gray.size == 0:
+            return 0.0
+        blurred = cv.GaussianBlur(gray, (3, 3), 0)
+        edges = cv.Canny(blurred, 45, 135)
+        contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        roi_area = float(max(1, gray.shape[0] * gray.shape[1]))
+        best = 0.0
+        for contour in contours:
+            area = float(cv.contourArea(contour))
+            area_ratio = area / roi_area
+            if area_ratio < 0.004 or area_ratio > 0.22:
+                continue
+            x, y, w, h = cv.boundingRect(contour)
+            if w <= 2 or h <= 2:
+                continue
+            aspect = w / max(1.0, float(h))
+            normalized_aspect = aspect if aspect >= 1.0 else 1.0 / aspect
+            if normalized_aspect > 2.25:
+                continue
+            rectangularity = float(np.clip(area / max(1.0, float(w * h)), 0.0, 1.0))
+            extent_score = float(np.exp(-abs(np.log(max(1e-6, area_ratio) / 0.055))))
+            aspect_score = float(np.exp(-0.9 * abs(np.log(max(1e-6, normalized_aspect) / 1.20))))
+            best = max(best, 0.40 * rectangularity + 0.35 * extent_score + 0.25 * aspect_score)
+        return float(np.clip(best, 0.0, 1.0))
+
     def _update_component_track(
         self,
         spec: ComponentSpec,
@@ -801,16 +1092,24 @@ class BoardFirstDetector(Detector):
             hits = previous.hits + 1
         else:
             hits = 1
+        if mode == "persistent":
+            state = TRACK_LOCAL_SEARCH
+        elif hits <= 1 and previous is None:
+            state = TRACK_ACQUIRE
+        else:
+            state = TRACK_LOCKED
         self._component_tracks[spec.label] = _ComponentTrack(
             canonical_bbox=canonical_bbox,
             score=float(score),
             visibility_score=float(visibility_score),
             missing_frames=0,
             hits=hits,
+            state=state,
         )
         LOGGER.debug(
-            "component track updated: label=%s mode=%s canonical=%s score=%.3f visibility=%.3f hits=%d",
+            "component track updated: label=%s state=%s mode=%s canonical=%s score=%.3f visibility=%.3f hits=%d",
             spec.label,
+            state,
             mode,
             canonical_bbox,
             score,
@@ -826,7 +1125,7 @@ class BoardFirstDetector(Detector):
             return
         missing = track.missing_frames + 1
         if missing > spec.track_max_missing:
-            LOGGER.debug("component track dropped: label=%s missing=%d", spec.label, missing)
+            LOGGER.debug("component track dropped: label=%s state=%s missing=%d", spec.label, TRACK_LOST, missing)
             self._component_tracks.pop(spec.label, None)
             return
         self._component_tracks[spec.label] = _ComponentTrack(
@@ -835,10 +1134,12 @@ class BoardFirstDetector(Detector):
             visibility_score=track.visibility_score,
             missing_frames=missing,
             hits=track.hits,
+            state=TRACK_LOCAL_SEARCH,
         )
         LOGGER.debug(
-            "component track missing: label=%s missing=%d score=%.3f canonical=%s",
+            "component track missing: label=%s state=%s missing=%d score=%.3f canonical=%s",
             spec.label,
+            TRACK_LOCAL_SEARCH,
             missing,
             track.score * spec.persistence_decay,
             track.canonical_bbox,
@@ -853,6 +1154,9 @@ class BoardFirstDetector(Detector):
     ) -> BBox:
         expanded = self._expand_bbox(canonical_bbox, spec.local_search_expansion, warped_shape)
         return self._intersect_bbox(expanded, roi_bbox) or roi_bbox
+
+    def _track_is_active(self, spec: ComponentSpec, track: _ComponentTrack | None) -> bool:
+        return bool(self._cfg.enable_tracking and track is not None and track.missing_frames <= spec.track_max_missing)
 
     def _keep_score_threshold(self, spec: ComponentSpec) -> float:
         if spec.keep_score_threshold > 0.0:
@@ -971,6 +1275,42 @@ class BoardFirstDetector(Detector):
     def _normalized_quad_shift(current: np.ndarray, previous: np.ndarray, previous_bbox: BBox) -> float:
         diag = max(1.0, float(np.hypot(previous_bbox.width(), previous_bbox.height())))
         return float(np.mean(np.linalg.norm(current.astype(np.float32) - previous.astype(np.float32), axis=1)) / diag)
+
+    @staticmethod
+    def _quad_area(quad: np.ndarray) -> float:
+        return float(abs(cv.contourArea(quad.astype(np.float32))))
+
+    def _pose_rejection_reason(self, current: BoardLocalization, previous: BoardLocalization) -> str | None:
+        current_area = max(1.0, self._quad_area(current.quad))
+        previous_area = max(1.0, self._quad_area(previous.quad))
+        area_growth = current_area / previous_area - 1.0
+        quality_drop = previous.warp_quality_score - current.warp_quality_score
+        tightness_drop = previous.tightness_score - current.tightness_score
+        shift = self._normalized_quad_shift(current.quad, previous.quad, previous.bbox)
+
+        if (
+            quality_drop > self._cfg.board_pose_max_quality_drop
+            and current.score + self._cfg.board_pose_quality_margin < previous.score
+        ):
+            return "quality_drop"
+        if (
+            area_growth > self._cfg.board_pose_max_area_growth
+            and tightness_drop > 0.06
+        ):
+            return "loose_area_growth"
+        if (
+            tightness_drop > self._cfg.board_pose_max_tightness_drop
+            and current.warp_quality_score + self._cfg.board_pose_quality_margin < previous.warp_quality_score
+        ):
+            return "tightness_drop"
+        if (
+            shift > 2.0 * self._cfg.board_smoothing_max_shift
+            and (area_growth > 0.08 or quality_drop > 0.08 or tightness_drop > 0.08)
+            and current.warp_quality_score < previous.warp_quality_score + self._cfg.board_pose_quality_margin
+            and current.tightness_score < previous.tightness_score + 0.04
+        ):
+            return "large_shift_without_quality_gain"
+        return None
 
     def _localize_from_hints(
         self,

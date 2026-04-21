@@ -22,6 +22,23 @@ class DummyLocalizer:
         return self._localization
 
 
+class SequenceLocalizer:
+    def __init__(self, localizations: list[BoardLocalization]) -> None:
+        self._localizations = list(localizations)
+        self.calls = 0
+
+    def localize(
+        self,
+        frame: np.ndarray,
+        hint_bbox: BBox | None = None,
+        *,
+        include_full_frame: bool = True,
+    ) -> BoardLocalization | None:
+        index = min(self.calls, len(self._localizations) - 1)
+        self.calls += 1
+        return self._localizations[index]
+
+
 class DummyMatcher:
     def __init__(self, detection: Detection | None) -> None:
         self._detection = detection
@@ -67,6 +84,30 @@ def _identity_localization(
         score=score,
         warp_quality_score=warp_quality_score,
     )
+
+
+def test_board_bbox_is_not_averaged_by_generic_temporal_filter() -> None:
+    first = _identity_localization()
+    second = BoardLocalization(
+        quad=np.array([[20, 0], [219, 0], [219, 99], [20, 99]], dtype=np.float32),
+        bbox=BBox(20, 0, 220, 100),
+        homography=np.eye(3, dtype=np.float32),
+        h_inv=np.eye(3, dtype=np.float32),
+        warped=np.zeros((100, 200, 3), dtype=np.uint8),
+        score=0.90,
+        warp_quality_score=1.0,
+    )
+    detector = BoardFirstDetector(
+        localizer=SequenceLocalizer([first, second]),
+        component_matchers={},
+        component_specs=[],
+        cfg=BoardFirstConfig(temporal_window=3, temporal_min_hits=1, enable_tracking=False),
+    )
+
+    detector.detect(np.zeros((100, 240, 3), dtype=np.uint8))
+    detections = detector.detect(np.zeros((100, 240, 3), dtype=np.uint8))
+
+    assert detections == [Detection(label="BOARD", score=0.90, bbox=BBox(20, 0, 220, 100))]
 
 
 def test_board_first_filters_component_that_is_too_small_for_board() -> None:
@@ -315,3 +356,49 @@ def test_reset_button_can_persist_from_local_track_evidence() -> None:
     detections = detector.detect(warped)
 
     assert "RESET_BUTTON" in [det.label for det in detections]
+
+
+def test_active_component_track_defers_full_roi_search_until_lost() -> None:
+    first = TemplateMatchResult(
+        detection=Detection(label="USB_PORT", score=0.82, bbox=BBox(100, 40, 140, 70)),
+        best_score=0.82,
+        second_score=0.20,
+        score_margin=0.62,
+    )
+    missing = TemplateMatchResult(
+        detection=None,
+        best_score=-1.0,
+        second_score=-1.0,
+        score_margin=1.0,
+        reason="no_valid_template",
+    )
+    full_roi_decoy = TemplateMatchResult(
+        detection=Detection(label="USB_PORT", score=0.99, bbox=BBox(0, 0, 40, 30)),
+        best_score=0.99,
+        second_score=0.20,
+        score_margin=0.79,
+    )
+    matcher = SequenceStatsMatcher([first, missing, full_roi_decoy])
+    detector = BoardFirstDetector(
+        localizer=DummyLocalizer(_identity_localization()),
+        component_matchers={"USB_PORT": matcher},
+        component_specs=[
+            ComponentSpec(
+                label="USB_PORT",
+                roi=RelativeROI(0.0, 0.0, 1.0, 1.0),
+                score_threshold=0.50,
+                keep_score_threshold=0.80,
+                min_board_area_ratio=0.001,
+                max_board_area_ratio=0.50,
+                local_search_expansion=0.50,
+                track_max_missing=2,
+            )
+        ],
+        cfg=BoardFirstConfig(temporal_window=1, temporal_min_hits=1, enable_tracking=True),
+    )
+
+    detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
+    detections = detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
+
+    assert matcher.calls == 2
+    assert [det.label for det in detections] == ["BOARD"]

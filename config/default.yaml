@@ -80,10 +80,16 @@ tracking:
   board_smoothing_alpha: 0.55
   board_smoothing_min_quality: 0.58
   board_smoothing_max_shift: 0.055
+  board_pose_max_area_growth: 0.18
+  board_pose_max_quality_drop: 0.14
+  board_pose_max_tightness_drop: 0.18
+  board_pose_quality_margin: 0.05
+  board_pose_reuse_decay: 0.98
 
 components:
   ESP32:
     roi: [0.04, 0.10, 0.46, 0.86]
+    layout_roi: [0.0878, 0.1543, 0.4100, 0.7935]
     score_threshold: 0.50
     layout_fallback_score: 0.62
     layout_fallback_min_board_score: 0.64
@@ -101,11 +107,14 @@ components:
     warp_quality_weight: 0.050
     keep_score_threshold: 0.43
     keep_min_visibility_score: 0.13
-    local_search_expansion: 0.32
+    local_search_expansion: 0.28
     track_max_missing: 2
     track_smoothing_alpha: 0.55
-    position_prior_weight: 0.06
+    position_prior_weight: 0.08
+    min_position_prior_acquire: 0.16
+    min_position_prior_keep: 0.12
     persistence_decay: 0.90
+    visibility_upscale: 1.0
     min_score_margin: 0.015
     preprocess_mode: module
     scales: [0.75, 0.85, 0.95, 1.00, 1.05, 1.15]
@@ -116,7 +125,8 @@ components:
     min_template_size: 18
   USB_PORT:
     roi: [0.74, 0.12, 0.98, 0.56]
-    score_threshold: 0.50
+    layout_roi: [0.7978, 0.1870, 0.9356, 0.4848]
+    score_threshold: 0.52
     layout_fallback_score: 0.60
     layout_fallback_min_board_score: 0.62
     layout_fallback_min_warp_quality: 0.44
@@ -133,11 +143,14 @@ components:
     warp_quality_weight: 0.040
     keep_score_threshold: 0.43
     keep_min_visibility_score: 0.12
-    local_search_expansion: 0.45
+    local_search_expansion: 0.34
     track_max_missing: 2
     track_smoothing_alpha: 0.55
-    position_prior_weight: 0.08
+    position_prior_weight: 0.16
+    min_position_prior_acquire: 0.38
+    min_position_prior_keep: 0.28
     persistence_decay: 0.88
+    visibility_upscale: 1.15
     min_score_margin: 0.012
     preprocess_mode: metal
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
@@ -148,7 +161,8 @@ components:
     min_template_size: 12
   JST_CONNECTOR:
     roi: [0.70, 0.42, 0.98, 0.86]
-    score_threshold: 0.54
+    layout_roi: [0.7500, 0.4783, 0.9356, 0.7957]
+    score_threshold: 0.55
     layout_fallback_score: 0.56
     layout_fallback_min_board_score: 0.70
     layout_fallback_min_warp_quality: 0.52
@@ -165,11 +179,14 @@ components:
     warp_quality_weight: 0.025
     keep_score_threshold: 0.47
     keep_min_visibility_score: 0.18
-    local_search_expansion: 0.55
+    local_search_expansion: 0.38
     track_max_missing: 2
     track_smoothing_alpha: 0.58
-    position_prior_weight: 0.10
+    position_prior_weight: 0.18
+    min_position_prior_acquire: 0.40
+    min_position_prior_keep: 0.30
     persistence_decay: 0.86
+    visibility_upscale: 1.20
     min_score_margin: 0.035
     preprocess_mode: connector
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
@@ -180,11 +197,12 @@ components:
     min_template_size: 12
   RESET_BUTTON:
     roi: [0.54, 0.20, 0.72, 0.54]
+    layout_roi: [0.5889, 0.2739, 0.6700, 0.4717]
     score_threshold: 0.54
-    layout_fallback_score: 0.0
-    layout_fallback_min_board_score: 0.78
-    layout_fallback_min_warp_quality: 0.62
-    layout_fallback_min_match_score: 0.50
+    layout_fallback_score: 0.52
+    layout_fallback_min_board_score: 0.70
+    layout_fallback_min_warp_quality: 0.54
+    layout_fallback_min_match_score: 0.30
     min_board_area_ratio: 0.0030
     max_board_area_ratio: 0.060
     min_normalized_aspect_ratio: 1.00
@@ -193,15 +211,18 @@ components:
     min_warp_quality_score: 0.46
     min_visibility_score: 0.30
     layout_fallback_min_visibility_score: 0.36
-    visibility_weight: 0.12
-    warp_quality_weight: 0.000
-    keep_score_threshold: 0.40
-    keep_min_visibility_score: 0.20
-    local_search_expansion: 0.85
+    visibility_weight: 0.30
+    warp_quality_weight: 0.020
+    keep_score_threshold: 0.38
+    keep_min_visibility_score: 0.22
+    local_search_expansion: 0.42
     track_max_missing: 4
-    track_smoothing_alpha: 0.65
-    position_prior_weight: 0.16
-    persistence_decay: 0.92
+    track_smoothing_alpha: 0.72
+    position_prior_weight: 0.28
+    min_position_prior_acquire: 0.48
+    min_position_prior_keep: 0.36
+    persistence_decay: 0.94
+    visibility_upscale: 2.0
     min_score_margin: 0.055
     preprocess_mode: button
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]

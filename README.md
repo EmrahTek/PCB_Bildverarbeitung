@@ -14,7 +14,8 @@ Proje klasik goruntu isleme icin tasarlandi ve Raspberry Pi 5 / Pi AI Camera tar
 - Board dogrulama, hiz icin kucultulmus verify kopyasinda yapilir.
 - Kucuk component'ler ROI icinde class-specific preprocessing, template/edge matching ve local visibility skoru ile aranir.
 - Template skoru dusuk ama board/warp/ROI kaniti guvenilir ise class-specific layout ROI fallback'i kullanilir.
-- Live modlarda board pozu/homography stabilize edilir, component'ler kanonik board uzayinda kilitlenir ve acquire/keep hysteresis ile flicker azaltilir.
+- Live modlarda board pozu/homography stabilize edilir; `BOARD` kutusu generic bbox averaging'den gecmez.
+- Component'ler kanonik board uzayinda `ACQUIRE -> LOCKED -> LOCAL_SEARCH -> FULL_SEARCH/LOST` mantigiyle kilitlenir ve acquire/keep hysteresis ile flicker azaltilir.
 
 Detector mantigi kamera markasina bagli degildir. Ayni klasik-CV akisi image, video, webcam, IDS ve ileride Raspberry Pi 5 + Pi AI Camera icin kullanilacak sekilde tasarlanmistir.
 
@@ -44,6 +45,58 @@ Kanonik yon kuralimiz:
 - USB-C ve JST sagda
 
 Raw telefon fotograflari portre veya yatay olabilir; onemli olan warp sonucunun bu kurala uymasi.
+
+## GUI Hizli Komutlar
+
+Tek resim GUI:
+
+```bash
+.venv/bin/python main.py \
+  --source image \
+  --image-path pcb_template_tools/test_images/IMG_9688.JPG \
+  --debug \
+  --loop \
+  --wait-ms 30 \
+  --proc-resize-width 960
+```
+
+Video GUI:
+
+```bash
+.venv/bin/python main.py \
+  --source video \
+  --video-path pcb_template_tools/test_video/WIN_20260420_11_54_52_Pro.mp4 \
+  --debug \
+  --video-resize-width 720 \
+  --proc-resize-width 720
+```
+
+Webcam GUI:
+
+```bash
+.venv/bin/python main.py \
+  --source webcam \
+  --camera-device 0 \
+  --camera-backend any \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --proc-resize-width 720
+```
+
+IDS GUI:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device /dev/video0 \
+  --camera-backend auto \
+  --debug \
+  --width 1600 \
+  --height 1200 \
+  --proc-resize-width 960 \
+  --disable-mjpg
+```
 
 ## Image Test
 
@@ -347,24 +400,32 @@ Ana ayarlar `config/default.yaml` icindedir.
 - `board.max_skin_ratio`: el/yuz bolgelerinden gelen false board adaylarini azaltir.
 - `board.verify_resize_width`: board verify hizini belirler. Daha kucuk deger hizli, ama biraz daha az hassastir.
 - `components.*.layout_fallback_score`: board guvenilir ama template match zayifsa sabit layout kutusunun skorudur.
+- `components.*.layout_roi`: component icin beklenen dar kanonik konumdur; USB/JST/RESET drift'ini azaltan ana layout prior buradan gelir.
 - `components.*.preprocess_mode`: ROI icin class-specific local contrast/edge enhancement secimidir.
 - `components.*.min_visibility_score`: ROI icindeki lokal gorunurluk kanitini kontrol eder.
+- `components.*.visibility_upscale`: kucuk parcalar icin local visibility/shape skorunu hesaplarken aday crop'unu buyutur; template matching boyutunu degistirmez.
 - `components.*.warp_quality_weight`: warp kalitesi cok iyiyse ve ROI kaniti de varsa component skoruna kucuk bir destek verir.
 - `components.*.keep_score_threshold`: live tracking sirasinda onceki component kilidini korumak icin gereken daha dusuk keep esigidir.
 - `components.*.keep_min_visibility_score`: locked local search veya persistence icin gereken minimum ROI gorunurlugudur.
 - `components.*.local_search_expansion`: onceki kanonik component kutusu etrafindaki local search penceresinin buyuklugudur.
 - `components.*.track_max_missing`: component'in kac kare dusuk kanit ile kisa sure korunabilecegini belirler.
 - `components.*.position_prior_weight`: template/edge skoruna layout veya onceki track pozisyonundan gelen kucuk, kaynak-bagimsiz destek verir.
+- `components.*.min_position_prior_acquire`: yeni component kilidi alinmadan once gereken layout yakinligi esigidir.
+- `components.*.min_position_prior_keep`: kilitli component'i korumak icin gereken layout veya onceki track yakinligi esigidir.
 - `tracking.board_smoothing_alpha`: live modda yeni board pozu ile onceki guvenilir board pozunun karisim oranidir.
 - `tracking.board_smoothing_min_quality`: board pozu stabilize edilmeden once gereken minimum warp kalitesidir.
 - `tracking.board_smoothing_max_shift`: ani buyuk hareketlerde smoothing'i kapatip yeni pozu oldugu gibi kullanmak icin limitdir.
+- `tracking.board_pose_max_area_growth`: yeni board pozu onceki poza gore fazla buyur ve tightness duserse eski poz kisa sure yeniden kullanilir.
+- `tracking.board_pose_max_quality_drop`: yeni board warp kalitesi belirgin duserse yanlis poza gecisi engeller.
+- `tracking.board_pose_max_tightness_drop`: loose/oversized board adaylarini canli takipte bastirir.
 - `source_profiles.video`, `source_profiles.webcam` ve `source_profiles.ids`: live kullanim icin daha hafif/uygun ayarlari override eder.
 
 Live stabilization kaynak-bagimsizdir:
 
 - Board smoothing sadece hem onceki hem yeni warp kaliteli ve hareket kucukse uygulanir.
-- Component locking, frame uzayinda degil kanonik board uzayinda yapilir; bu nedenle IDS, webcam, video ve Pi kamera icin ayni mantik calisir.
-- ESP32 ve USB daha esnek tutulur; JST daha fazla local visibility ister; RESET_BUTTON en guclu pozisyon onceligi ve temporal persistence kullanir.
+- Yeni board adayi loose, fazla buyuk veya kalite olarak belirgin zayifsa onceki homography mevcut frame'e yeniden uygulanir; bu `BOARD` averaging degil pose reuse'dur.
+- Component locking, frame uzayinda degil kanonik board uzayinda yapilir; kilitliyken once local search, sonra persistence denenir, full ROI search ise kilit kaybolunca devreye girer.
+- ESP32 daha esnek tutulur; USB/JST sag konnektor layout prior'i ile, RESET_BUTTON ise en guclu pozisyon onceligi, small-button shape skoru ve temporal persistence ile korunur.
 
 ## Raspberry Pi 5 Icin
 

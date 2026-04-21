@@ -74,6 +74,13 @@ def prepare_match_images(image: np.ndarray, cfg: MatchPrepConfig) -> tuple[np.nd
         top_hat = cv.morphologyEx(gray, cv.MORPH_TOPHAT, np.ones((9, 9), np.uint8))
         gray = cv.addWeighted(gray, 0.82, top_hat, 0.75, 0)
         gray = normalize_gray(gray)
+    if mode == "button":
+        kernel = np.ones((5, 5), np.uint8)
+        top_hat = cv.morphologyEx(gray, cv.MORPH_TOPHAT, kernel)
+        black_hat = cv.morphologyEx(gray, cv.MORPH_BLACKHAT, kernel)
+        gray = cv.addWeighted(gray, 0.78, top_hat, 0.46, 0)
+        gray = cv.addWeighted(gray, 1.00, black_hat, 0.34, 0)
+        gray = normalize_gray(gray)
     if mode == "metal":
         grad_x = cv.Sobel(gray, cv.CV_32F, 1, 0, ksize=3)
         grad_y = cv.Sobel(gray, cv.CV_32F, 0, 1, ksize=3)

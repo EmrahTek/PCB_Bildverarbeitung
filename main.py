@@ -317,7 +317,10 @@ def _component_specs_and_matchers(
                 track_max_missing=int(component_cfg.get("track_max_missing", 2)),
                 track_smoothing_alpha=float(component_cfg.get("track_smoothing_alpha", 0.55)),
                 position_prior_weight=float(component_cfg.get("position_prior_weight", 0.0)),
+                min_position_prior_acquire=float(component_cfg.get("min_position_prior_acquire", 0.0)),
+                min_position_prior_keep=float(component_cfg.get("min_position_prior_keep", 0.0)),
                 persistence_decay=float(component_cfg.get("persistence_decay", 0.88)),
+                visibility_upscale=float(component_cfg.get("visibility_upscale", 1.0)),
             )
         )
         matchers[label] = matcher
@@ -424,6 +427,11 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             board_smoothing_alpha=float(tracking_cfg.get("board_smoothing_alpha", 0.55)),
             board_smoothing_min_quality=float(tracking_cfg.get("board_smoothing_min_quality", 0.58)),
             board_smoothing_max_shift=float(tracking_cfg.get("board_smoothing_max_shift", 0.055)),
+            board_pose_max_area_growth=float(tracking_cfg.get("board_pose_max_area_growth", 0.22)),
+            board_pose_max_quality_drop=float(tracking_cfg.get("board_pose_max_quality_drop", 0.16)),
+            board_pose_max_tightness_drop=float(tracking_cfg.get("board_pose_max_tightness_drop", 0.20)),
+            board_pose_quality_margin=float(tracking_cfg.get("board_pose_quality_margin", 0.05)),
+            board_pose_reuse_decay=float(tracking_cfg.get("board_pose_reuse_decay", 0.98)),
         ),
     )
 
