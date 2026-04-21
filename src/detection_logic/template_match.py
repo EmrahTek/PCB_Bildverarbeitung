@@ -23,6 +23,7 @@ class TemplateMatchConfig:
     min_template_size: int = 12
     min_score_margin: float = 0.0
     second_best_iou_threshold: float = 0.45
+    preprocess_mode: str = "default"
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class TemplateMatchResult:
     second_score: float
     score_margin: float
     reason: str = ""
+    candidate: Detection | None = None
 
 
 class TemplateMatcher(Detector):
@@ -55,7 +57,11 @@ class TemplateMatcher(Detector):
         if not templates_gray:
             raise ValueError("templates_gray must not be empty")
         self._cfg = cfg
-        self._prep_cfg = MatchPrepConfig(use_clahe=cfg.use_clahe, blur_ksize=cfg.blur_ksize)
+        self._prep_cfg = MatchPrepConfig(
+            use_clahe=cfg.use_clahe,
+            blur_ksize=cfg.blur_ksize,
+            mode=cfg.preprocess_mode,
+        )
         self._templates: list[_PreparedTemplate] = []
         for template in templates_gray:
             self._templates.extend(self._prepare_template_variants(template))
@@ -116,10 +122,10 @@ class TemplateMatcher(Detector):
 
         margin = 1.0 if second_score < 0.0 else best.score - second_score
         if best.score < self._cfg.score_threshold:
-            return TemplateMatchResult(None, best.score, second_score, margin, "low_score")
+            return TemplateMatchResult(None, best.score, second_score, margin, "low_score", best)
         if margin < self._cfg.min_score_margin:
-            return TemplateMatchResult(None, best.score, second_score, margin, "ambiguous_score_margin")
-        return TemplateMatchResult(best, best.score, second_score, margin)
+            return TemplateMatchResult(None, best.score, second_score, margin, "ambiguous_score_margin", best)
+        return TemplateMatchResult(best, best.score, second_score, margin, candidate=best)
 
     def detect_candidates(
         self,

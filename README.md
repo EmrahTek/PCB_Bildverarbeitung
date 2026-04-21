@@ -12,14 +12,15 @@ Proje klasik goruntu isleme icin tasarlandi ve Raspberry Pi 5 / Pi AI Camera tar
 
 - Once PCB bulunur ve kanonik `900 x 460` board gorunumune warp edilir.
 - Board dogrulama, hiz icin kucultulmus verify kopyasinda yapilir.
-- Kucuk component'ler once template matching ile aranir.
-- Template skoru dusuk ama board guvenilir ise sabit PCB layout ROI fallback'i kullanilir.
+- Kucuk component'ler ROI icinde class-specific preprocessing, template/edge matching ve local visibility skoru ile aranir.
+- Template skoru dusuk ama board/warp/ROI kaniti guvenilir ise class-specific layout ROI fallback'i kullanilir.
+- Live modlarda onceki iyi board pozu kisa sure yeniden kullanilarak flicker azaltilir.
 
 ## Kurulum
 
 ```bash
 cd /home/emrahtek/Schreibtisch/CodeLab/PCB_Bauteilerkennung
-.venv/bin/python -m pytest -q
+PYTHONPATH=. .venv/bin/python -m pytest -q
 ```
 
 Bu projede sisteminde `python` komutu olmayabilir; bu yuzden komutlarda `.venv/bin/python` kullanmak daha guvenli.
@@ -79,6 +80,17 @@ Tek resim:
   --proc-resize-width 960
 ```
 
+Tek IDS test resmi:
+
+```bash
+.venv/bin/python main.py \
+  --source image \
+  --image-path pcb_template_tools/test_images/IDS_Kamera.bmp \
+  --headless \
+  --debug \
+  --proc-resize-width 960
+```
+
 ## Video Test
 
 Detayli kontrol:
@@ -108,12 +120,37 @@ Daha hizli test icin frame atlama:
 
 ## Live Webcam Test
 
-Baslangic komutu:
+Once kamera acilisini test et:
 
 ```bash
 .venv/bin/python main.py \
   --source webcam \
-  --camera-index 0 \
+  --camera-device 0 \
+  --camera-backend any \
+  --camera-open-check \
+  --debug
+```
+
+Canli calistirma:
+
+```bash
+.venv/bin/python main.py \
+  --source webcam \
+  --camera-device 0 \
+  --camera-backend any \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --proc-resize-width 720
+```
+
+Linux/V4L2 ile:
+
+```bash
+.venv/bin/python main.py \
+  --source webcam \
+  --camera-device 0 \
+  --camera-backend v4l2 \
   --debug \
   --width 1280 \
   --height 720 \
@@ -125,7 +162,8 @@ Eger FPS cok dusukse:
 ```bash
 .venv/bin/python main.py \
   --source webcam \
-  --camera-index 0 \
+  --camera-device 0 \
+  --camera-backend any \
   --debug \
   --width 1280 \
   --height 720 \
@@ -133,6 +171,154 @@ Eger FPS cok dusukse:
 ```
 
 Eger board cok uzaktaysa veya kucuk gorunuyorsa kameraya biraz yaklastir. Yeni ayarlarda kucuk board icin `0.08` template scale destegi var, ama cok uzak ve bulanikhsa component ROI'leri dogru oturmaz.
+
+## IDS Kamera Testi
+
+Desteklenen hedef kamera:
+
+- IDS UI-3250CP-M-GL rev.2
+- Lens: SV-1614H
+
+Kod tarafinda IDS icin ayri `--source ids` profili vardir ve detector kapatilmaz. Akis yine normal GUI pipeline'idir:
+
+```text
+IDS frame -> board localization -> canonical warp -> component detection -> GUI overlay
+```
+
+`--source ids` detector'u kapatmadan normal GUI pipeline'ini calistirir. Elle verilen `--camera-device 0` veya `--camera-device /dev/videoX` hedefleri kullanici tercihi kabul edilir: Linux cihaz adi IDS/uEye gibi gorunmese bile acilmaya calisilir, sadece WARNING loglanir. Yalnizca OpenCV cihazi gercekten acamazsa hata alirsiniz.
+
+Dogru `/dev/videoX` cihazini bulmak icin:
+
+```bash
+.venv/bin/python main.py --list-video-devices
+```
+
+Once kamera acilisini test et:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device /dev/video0 \
+  --camera-backend auto \
+  --camera-open-check \
+  --debug \
+  --width 1600 \
+  --height 1200 \
+  --disable-mjpg
+```
+
+Canli IDS calistirma:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device /dev/video0 \
+  --camera-backend auto \
+  --debug \
+  --width 1600 \
+  --height 1200 \
+  --proc-resize-width 960 \
+  --disable-mjpg
+```
+
+`--camera-device 0` de kullanilabilir:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device 0 \
+  --camera-backend auto \
+  --debug \
+  --width 1600 \
+  --height 1200 \
+  --proc-resize-width 960 \
+  --disable-mjpg
+```
+
+Eger IDS kamera gercekten `/dev/video2` ise:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device /dev/video2 \
+  --camera-backend v4l2 \
+  --debug \
+  --width 1600 \
+  --height 1200 \
+  --proc-resize-width 960 \
+  --disable-mjpg
+```
+
+Eger IDS kamera V4L2 olarak gorunmuyorsa ve IDS Software Suite/uEye SDK + `pyueye` kuruluysa:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device 0 \
+  --camera-backend pyueye \
+  --debug \
+  --width 1600 \
+  --height 1200 \
+  --proc-resize-width 960 \
+  --disable-mjpg
+```
+
+OpenCV uEye backend'i sadece OpenCV runtime'iniz gercekten `CAP_UEYE` backend'ini destekliyorsa kullanilabilir. Mevcut test runtime'inda `cv.videoio_registry.hasBackend(cv.CAP_UEYE)` false donuyor; bu durumda su komut temiz bir hata mesaji ile durur:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device 0 \
+  --camera-backend ueye \
+  --camera-open-check \
+  --debug
+```
+
+GStreamer pipeline gerekirse `--camera-device` string olarak verilebilir:
+
+```bash
+.venv/bin/python main.py \
+  --source ids \
+  --camera-device "v4l2src device=/dev/video0 ! video/x-raw,width=1600,height=1200,framerate=30/1 ! videoconvert ! appsink" \
+  --camera-backend gstreamer \
+  --debug \
+  --proc-resize-width 960 \
+  --disable-mjpg
+```
+
+IDS notlari:
+
+- UI-3250CP-M-GL global shutter oldugu icin motion blur webcam'e gore daha az olmali; yine de exposure cok uzunsa component ROI matching zayiflar.
+- SV-1614H ile once board'u frame icinde orta-buyuk boyutta tut. Board cok kucukse warp dogru olsa bile RESET/JST guvenilir olmaz.
+- IDS SDK/uEye daemon kurulu olsa bile OpenCV build'inizde uEye video backend aktif degilse `--camera-backend ueye` calismaz.
+- `--camera-backend pyueye` icin IDS Software Suite/uEye SDK ve Python `pyueye` paketi gerekir. Paket yoksa komut net bir hata ile durur.
+- `--camera-device 0` ve `--camera-index 0` OpenCV'ye integer index `0` olarak verilir. `--camera-device /dev/video0` da V4L2 kullaniminda integer index `0` olarak yorumlanir; boylece OpenCV'nin "capture by name" hatasina dusulmez.
+- `--source ids` elle secilen IDS/uEye gibi gorunmeyen V4L2 cihazlarini artik reddetmez; warning loglar ve acmayi dener.
+- `--ids-allow-unverified-opencv` geriye donuk uyumluluk icin kaldi, ama elle secilen OpenCV hedefleri zaten warning ile acilmaya calisilir.
+- GStreamer gibi pipeline kullaniminda `--camera-device "v4l2src ... ! appsink"` string olarak kalir ve `--camera-backend gstreamer` ile denenir.
+- `source_profiles.ids` ayarlari webcam'den biraz farkli exposure/kontrast varsayimi ile gelir.
+
+Backend notlari:
+
+- `--camera-backend auto`: webcam icin `CAP_ANY`; IDS icin OpenCV `v4l2,any` denenir. Elle cihaz verilirse o hedef acilmaya calisilir.
+- `--camera-backend any`: OpenCV'nin varsayilan backend secimine birakir.
+- `--camera-backend v4l2`: Linux video cihazlari icin tercih edilir.
+- `--camera-backend pyueye`: IDS uEye SDK Python yolu; V4L2/OpenCV cihazina gerek duymaz.
+- `--camera-backend ueye`: yalnizca OpenCV runtime'iniz uEye backend'ini destekliyorsa kullanilir; aksi halde net hata verir.
+
+Kamera acilis sorunu giderme:
+
+```bash
+ls /dev/video*
+.venv/bin/python main.py --list-video-devices
+.venv/bin/python main.py --source webcam --camera-device 0 --camera-backend any --camera-open-check --debug
+.venv/bin/python main.py --source webcam --camera-device /dev/video0 --camera-backend v4l2 --camera-open-check --debug
+.venv/bin/python main.py --source ids --camera-device /dev/video0 --camera-backend auto --camera-open-check --debug --disable-mjpg
+.venv/bin/python main.py --source ids --camera-device /dev/video0 --camera-backend auto --camera-open-check --save-first-frame /tmp/ids-first-frame.png --debug --disable-mjpg
+.venv/bin/python main.py --source ids --camera-device 0 --camera-backend pyueye --camera-open-check --debug
+```
+
+Loglarda IDS icin `IDS using OpenCV/V4L2 path`, `ids-opencv`, `verified_ids=True/False`, `IDS using pyueye path` veya hata mesaji gorunur. `verified_ids=False` artik bloklayici degildir; sadece secilen cihazin Linux adinin IDS/uEye gibi gorunmedigini soyler. Eger hata `can't open camera by index` ise hedef artik dogru integer index olarak gidiyor demektir; cihaz izinleri, indeks, baska uygulamanin kamerayi kullanmasi veya driver/IDS ayarlari kontrol edilmelidir.
 
 ## Log Kontrolu
 
@@ -152,9 +338,17 @@ Ana ayarlar `config/default.yaml` icindedir.
 
 - `board_template.scales`: PCB'nin frame icindeki boyut araligini belirler. Uzak/kucuk board icin `0.08-0.16` kritik.
 - `board.min_objectness_score`: TV, yuz, tisort, dolap gibi yanlis board adaylarini elemek icin kullanilir.
+- `board.min_pcb_structure_score`: pin/header benzeri ic yapi, edge dagilimi ve sol/sag PCB yapisini kontrol eder.
+- `board.min_canonical_structure_score`: canonical warp icinde beklenen sol ESP32 / sag konnektor yapisinin minimum kanitidir.
+- `board.min_edge_grid_score`: monitor/duvar/kasa gibi buyuk ama ic yapisi zayif dikdortgenleri elemek icin edge dagilimini kontrol eder.
+- `board.min_tightness_score`: board warp'inin PCB'yi ne kadar sikica sardigini kontrol eder.
+- `board.max_skin_ratio`: el/yuz bolgelerinden gelen false board adaylarini azaltir.
 - `board.verify_resize_width`: board verify hizini belirler. Daha kucuk deger hizli, ama biraz daha az hassastir.
 - `components.*.layout_fallback_score`: board guvenilir ama template match zayifsa sabit layout kutusunun skorudur.
-- `source_profiles.video` ve `source_profiles.webcam`: live kullanim icin daha hafif ayarlari override eder.
+- `components.*.preprocess_mode`: ROI icin class-specific local contrast/edge enhancement secimidir.
+- `components.*.min_visibility_score`: ROI icindeki lokal gorunurluk kanitini kontrol eder.
+- `components.*.warp_quality_weight`: warp kalitesi cok iyiyse ve ROI kaniti de varsa component skoruna kucuk bir destek verir.
+- `source_profiles.video`, `source_profiles.webcam` ve `source_profiles.ids`: live kullanim icin daha hafif/uygun ayarlari override eder.
 
 ## Raspberry Pi 5 Icin
 

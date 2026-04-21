@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.detection_logic.board_first import BoardFirstConfig, BoardFirstDetector, ComponentSpec, RelativeROI
+from src.detection_logic.template_match import TemplateMatchResult
 from src.utils.types import BBox, Detection
 from src.preprocessing.geometry import BoardLocalization
 
@@ -29,8 +30,22 @@ class DummyMatcher:
         return self._detection
 
 
-def _identity_localization(*, score: float = 0.90, warp_quality_score: float = 1.0) -> BoardLocalization:
-    warped = np.zeros((100, 200, 3), dtype=np.uint8)
+class StatsMatcher:
+    def __init__(self, result: TemplateMatchResult) -> None:
+        self._result = result
+
+    def detect_best_with_stats(self, frame: np.ndarray) -> TemplateMatchResult:
+        return self._result
+
+
+def _identity_localization(
+    *,
+    score: float = 0.90,
+    warp_quality_score: float = 1.0,
+    warped: np.ndarray | None = None,
+) -> BoardLocalization:
+    if warped is None:
+        warped = np.zeros((100, 200, 3), dtype=np.uint8)
     homography = np.eye(3, dtype=np.float32)
     return BoardLocalization(
         quad=np.array([[0, 0], [199, 0], [199, 99], [0, 99]], dtype=np.float32),
@@ -169,3 +184,40 @@ def test_layout_fallback_can_require_roi_match_evidence() -> None:
 
     detections = detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
     assert [det.label for det in detections] == ["BOARD"]
+
+
+def test_component_visibility_can_rescue_near_threshold_match() -> None:
+    candidate = Detection(label="ESP32", score=0.46, bbox=BBox(30, 15, 150, 80))
+    crop = np.zeros((100, 200, 3), dtype=np.uint8)
+    crop[15:85, 30:160] = 210
+    detector = BoardFirstDetector(
+        localizer=DummyLocalizer(_identity_localization(warped=crop)),
+        component_matchers={
+            "ESP32": StatsMatcher(
+                TemplateMatchResult(
+                    detection=None,
+                    best_score=0.46,
+                    second_score=0.15,
+                    score_margin=0.31,
+                    reason="low_score",
+                    candidate=candidate,
+                )
+            ),
+        },
+        component_specs=[
+            ComponentSpec(
+                label="ESP32",
+                roi=RelativeROI(0.0, 0.0, 1.0, 1.0),
+                score_threshold=0.50,
+                min_board_area_ratio=0.01,
+                max_board_area_ratio=0.80,
+                min_visibility_score=0.10,
+                visibility_weight=0.35,
+                warp_quality_weight=0.08,
+            )
+        ],
+        cfg=BoardFirstConfig(temporal_window=1, temporal_min_hits=1),
+    )
+
+    detections = detector.detect(crop)
+    assert sorted(det.label for det in detections) == ["BOARD", "ESP32"]

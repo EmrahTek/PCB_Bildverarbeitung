@@ -11,6 +11,7 @@ import numpy as np
 from src.app.cli import parse_args
 from src.app.pipeline import Pipeline, PipelineConfig
 from src.camera_input.base import FrameSource
+from src.camera_input.ids import IDSCameraConfig, IDSCameraSource, discover_video_devices, pyueye_available
 from src.camera_input.image import ImageFileConfig, ImageFileSource, ImageFolderConfig, ImageFolderSource
 from src.camera_input.video_file import VideoFileConfig, VideoFileSource
 from src.camera_input.webcam import WebcamConfig, WebcamSource
@@ -23,6 +24,31 @@ from src.utils.io import first_existing_directory, load_bgr, load_templates, loa
 from src.utils.prepared_templates import PreparedTemplateBank, load_prepared_template_bank
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _opencv_backend_available(backend_name: str) -> bool:
+    backend_id = getattr(cv, backend_name, None)
+    if backend_id is None or not hasattr(cv, "videoio_registry"):
+        return False
+    try:
+        return bool(cv.videoio_registry.hasBackend(backend_id))
+    except cv.error:
+        return False
+
+
+def _print_video_devices() -> None:
+    devices = discover_video_devices()
+    if devices:
+        print("Video devices:")
+        for device in devices:
+            print(f"  {device.path}\tindex={device.index}\tname={device.name or 'unknown'}")
+    else:
+        print("Video devices: none found under /sys/class/video4linux")
+
+    print("Backends:")
+    print(f"  OpenCV CAP_V4L2 available: {_opencv_backend_available('CAP_V4L2')}")
+    print(f"  OpenCV CAP_UEYE available: {_opencv_backend_available('CAP_UEYE')}")
+    print(f"  pyueye installed: {pyueye_available()}")
 
 
 class ResizePreprocessor:
@@ -42,13 +68,33 @@ class ResizePreprocessor:
 
 def build_source(args) -> FrameSource:
     """Construct the requested frame source from CLI arguments."""
+    if args.source == "ids":
+        return IDSCameraSource(
+            IDSCameraConfig(
+                index=args.camera_index,
+                device=args.camera_device,
+                width=args.width,
+                height=args.height,
+                target_fps=args.camera_fps,
+                backend=args.camera_backend,
+                use_mjpg=not args.disable_mjpg,
+                buffer_size=args.camera_buffer,
+                allow_unverified_opencv=args.ids_allow_unverified_opencv,
+            )
+        )
+
     if args.source == "webcam":
         return WebcamSource(
             WebcamConfig(
                 index=args.camera_index,
+                device=args.camera_device,
                 width=args.width,
                 height=args.height,
                 target_fps=args.camera_fps,
+                backend=args.camera_backend,
+                use_mjpg=not args.disable_mjpg,
+                buffer_size=args.camera_buffer,
+                source_name="webcam",
             )
         )
 
@@ -165,6 +211,7 @@ def _build_board_template_locator(config: dict, board_dirs: list[Path], template
             min_template_size=int(board_template_cfg.get("min_template_size", 32)),
             min_score_margin=float(board_template_cfg.get("min_score_margin", 0.0)),
             second_best_iou_threshold=float(board_template_cfg.get("second_best_iou_threshold", 0.45)),
+            preprocess_mode=str(board_template_cfg.get("preprocess_mode", "default")),
         ),
     )
     return BoardTemplateLocator(
@@ -219,6 +266,7 @@ def _component_specs_and_matchers(
                 min_template_size=int(component_cfg["min_template_size"]),
                 min_score_margin=float(component_cfg.get("min_score_margin", 0.0)),
                 second_best_iou_threshold=float(component_cfg.get("second_best_iou_threshold", 0.45)),
+                preprocess_mode=str(component_cfg.get("preprocess_mode", "default")),
             ),
         )
         roi = (
@@ -259,6 +307,10 @@ def _component_specs_and_matchers(
                 min_warp_quality_score=float(component_cfg.get("min_warp_quality_score", 0.0)),
                 layout_fallback_min_warp_quality=float(component_cfg.get("layout_fallback_min_warp_quality", 0.0)),
                 layout_fallback_min_match_score=float(component_cfg.get("layout_fallback_min_match_score", 0.0)),
+                min_visibility_score=float(component_cfg.get("min_visibility_score", 0.0)),
+                layout_fallback_min_visibility_score=float(component_cfg.get("layout_fallback_min_visibility_score", 0.0)),
+                visibility_weight=float(component_cfg.get("visibility_weight", 0.0)),
+                warp_quality_weight=float(component_cfg.get("warp_quality_weight", 0.0)),
             )
         )
         matchers[label] = matcher
@@ -321,6 +373,11 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             min_tracked_score=float(board_cfg["min_tracked_score"]),
             min_warp_quality_score=float(board_cfg.get("min_warp_quality_score", 0.38)),
             min_tracked_warp_quality_score=float(board_cfg.get("min_tracked_warp_quality_score", 0.32)),
+            min_pcb_structure_score=float(board_cfg.get("min_pcb_structure_score", 0.12)),
+            min_canonical_structure_score=float(board_cfg.get("min_canonical_structure_score", 0.0)),
+            min_edge_grid_score=float(board_cfg.get("min_edge_grid_score", 0.0)),
+            min_tightness_score=float(board_cfg.get("min_tightness_score", 0.35)),
+            max_skin_ratio=float(board_cfg.get("max_skin_ratio", 0.18)),
             verify_gray_weight=float(board_cfg["verify_gray_weight"]),
             verify_edge_weight=float(board_cfg["verify_edge_weight"]),
             verify_resize_width=int(board_cfg.get("verify_resize_width", 300)),
@@ -335,9 +392,10 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     specs, matchers = _component_specs_and_matchers(config, prepared_bank, template_rotation_turns)
     LOGGER.info("Enabled component matchers: %s", sorted(matchers.keys()))
 
-    temporal_window = int(tracking_cfg["temporal_window"]) if source in {"webcam", "video"} else 1
-    temporal_min_hits = int(tracking_cfg["temporal_min_hits"]) if source in {"webcam", "video"} else 1
-    enable_tracking = source in {"webcam", "video"}
+    live_sources = {"webcam", "video", "ids"}
+    temporal_window = int(tracking_cfg["temporal_window"]) if source in live_sources else 1
+    temporal_min_hits = int(tracking_cfg["temporal_min_hits"]) if source in live_sources else 1
+    enable_tracking = source in live_sources
     board_template_cfg = config.get("board_template", {})
     template_refresh_interval = int(board_template_cfg.get("refresh_interval", 5)) if enable_tracking else 1
 
@@ -353,6 +411,9 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             template_refresh_interval=template_refresh_interval,
             hint_accept_score=float(tracking_cfg.get("hint_accept_score", 0.58)),
             enable_tracking=enable_tracking,
+            max_pose_reuse_frames=int(tracking_cfg.get("max_pose_reuse_frames", 2)),
+            reuse_min_warp_quality=float(tracking_cfg.get("reuse_min_warp_quality", 0.48)),
+            reuse_score_decay=float(tracking_cfg.get("reuse_score_decay", 0.92)),
         ),
     )
 
@@ -360,7 +421,40 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
 def main() -> None:
     args = parse_args()
     setup_logging(args.logging)
+    if args.list_video_devices:
+        _print_video_devices()
+        return
+
     config = _apply_source_profile(load_yaml(args.config), args.source)
+    LOGGER.info("Using source profile: %s", args.source)
+
+    if args.camera_open_check:
+        if args.source not in {"webcam", "ids"}:
+            raise ValueError("--camera-open-check is only valid with --source webcam or --source ids")
+        source = build_source(args)
+        try:
+            try:
+                source.open()
+                frame, meta = source.read()
+                if frame is None or meta is None:
+                    raise RuntimeError("Camera opened, but no frame could be read.")
+                LOGGER.info(
+                    "Camera open check OK: source=%s frame_shape=%s dtype=%s",
+                    meta.source,
+                    frame.shape,
+                    frame.dtype,
+                )
+                if args.save_first_frame is not None:
+                    args.save_first_frame.parent.mkdir(parents=True, exist_ok=True)
+                    if not cv.imwrite(str(args.save_first_frame), frame):
+                        raise RuntimeError(f"Failed to save first frame to {args.save_first_frame}")
+                    LOGGER.info("Saved first camera frame to %s", args.save_first_frame)
+            except RuntimeError as exc:
+                LOGGER.error("Camera open check failed: %s", exc)
+                raise SystemExit(2) from None
+        finally:
+            source.release()
+        return
 
     runtime_cfg = config.get("runtime", {})
     detector = build_detector(config, args.source)
@@ -377,13 +471,19 @@ def main() -> None:
             exit_key=str(runtime_cfg.get("exit_key", "q")),
         ),
     )
-    pipeline.run(
-        source,
-        debug=args.debug,
-        headless=args.headless,
-        max_frames=args.max_frames,
-        wait_ms=args.wait_ms,
-    )
+    try:
+        pipeline.run(
+            source,
+            debug=args.debug,
+            headless=args.headless,
+            max_frames=args.max_frames,
+            wait_ms=args.wait_ms,
+        )
+    except RuntimeError as exc:
+        if args.source in {"webcam", "ids"}:
+            LOGGER.error("Camera runtime failed: %s", exc)
+            raise SystemExit(2) from None
+        raise
 
 
 if __name__ == "__main__":

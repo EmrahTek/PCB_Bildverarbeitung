@@ -34,6 +34,11 @@ class BoardWarpConfig:
     min_tracked_score: float = 0.34
     min_warp_quality_score: float = 0.38
     min_tracked_warp_quality_score: float = 0.32
+    min_pcb_structure_score: float = 0.12
+    min_canonical_structure_score: float = 0.0
+    min_edge_grid_score: float = 0.0
+    min_tightness_score: float = 0.35
+    max_skin_ratio: float = 0.18
     verify_gray_weight: float = 0.65
     verify_edge_weight: float = 0.35
     verify_resize_width: int = 300
@@ -56,6 +61,8 @@ class BoardLocalization:
     geometry_score: float = 1.0
     verify_score: float = 1.0
     objectness_score: float = 1.0
+    pcb_structure_score: float = 1.0
+    tightness_score: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -66,10 +73,23 @@ class _BoardCandidate:
     verify_score: float
     objectness_score: float
     warp_quality_score: float
+    pcb_structure_score: float
+    tightness_score: float
     score: float
     homography: np.ndarray
     h_inv: np.ndarray
     warped: np.ndarray
+
+
+@dataclass(frozen=True)
+class _StructureMetrics:
+    score: float
+    skin_ratio: float
+    canonical_score: float
+    header_score: float
+    edge_density_score: float
+    edge_grid_score: float
+    color_score: float
 
 
 def order_quad_points(pts: np.ndarray) -> np.ndarray:
@@ -232,7 +252,8 @@ class BoardLocalizer:
                 reasons.append("low_warp_quality")
             LOGGER.debug(
                 "board rejected: reason=%s score=%.3f min_score=%.3f warp_quality=%.3f "
-                "min_warp_quality=%.3f geometry=%.3f verify=%.3f objectness=%.3f bbox=%s",
+                "min_warp_quality=%.3f geometry=%.3f verify=%.3f objectness=%.3f "
+                "structure=%.3f tightness=%.3f bbox=%s",
                 "+".join(reasons),
                 best.score,
                 min_score,
@@ -241,6 +262,8 @@ class BoardLocalizer:
                 best.geometry_score,
                 best.verify_score,
                 best.objectness_score,
+                best.pcb_structure_score,
+                best.tightness_score,
                 best.bbox,
             )
             return None
@@ -256,6 +279,8 @@ class BoardLocalizer:
             geometry_score=best.geometry_score,
             verify_score=best.verify_score,
             objectness_score=best.objectness_score,
+            pcb_structure_score=best.pcb_structure_score,
+            tightness_score=best.tightness_score,
         )
 
     def _find_best_candidate(self, frame: np.ndarray, search_box: BBox) -> _BoardCandidate | None:
@@ -282,6 +307,7 @@ class BoardLocalizer:
             homography = cv.getPerspectiveTransform(quad, dst)
             warped = cv.warpPerspective(frame, homography, (out_w, out_h))
             warped, homography = self._normalize_orientation(warped, homography)
+            warped, homography, quad, tightness_score = self._refine_warp_tightness(frame, warped, homography, quad)
             verify_score = self._verify_board(warped)
             objectness_score = self._board_objectness_score(warped)
             if objectness_score < self._cfg.min_objectness_score:
@@ -293,7 +319,77 @@ class BoardLocalizer:
                     verify_score,
                 )
                 continue
-            warp_quality_score = self._warp_quality_score(quad, warped, geometry_score, verify_score, objectness_score)
+            structure = self._pcb_structure_metrics(warped)
+            if structure.skin_ratio > self._cfg.max_skin_ratio:
+                LOGGER.debug(
+                    "board candidate rejected: reason=skin_like_region skin=%.3f max=%.3f geometry=%.3f verify=%.3f objectness=%.3f",
+                    structure.skin_ratio,
+                    self._cfg.max_skin_ratio,
+                    geometry_score,
+                    verify_score,
+                    objectness_score,
+                )
+                continue
+            if structure.canonical_score < self._cfg.min_canonical_structure_score:
+                LOGGER.debug(
+                    "board candidate rejected: reason=low_canonical_structure canonical=%.3f min=%.3f "
+                    "structure=%.3f header=%.3f grid=%.3f geometry=%.3f verify=%.3f",
+                    structure.canonical_score,
+                    self._cfg.min_canonical_structure_score,
+                    structure.score,
+                    structure.header_score,
+                    structure.edge_grid_score,
+                    geometry_score,
+                    verify_score,
+                )
+                continue
+            if structure.edge_grid_score < self._cfg.min_edge_grid_score:
+                LOGGER.debug(
+                    "board candidate rejected: reason=low_edge_distribution grid=%.3f min=%.3f "
+                    "structure=%.3f canonical=%.3f header=%.3f geometry=%.3f verify=%.3f",
+                    structure.edge_grid_score,
+                    self._cfg.min_edge_grid_score,
+                    structure.score,
+                    structure.canonical_score,
+                    structure.header_score,
+                    geometry_score,
+                    verify_score,
+                )
+                continue
+            if structure.score < self._cfg.min_pcb_structure_score:
+                LOGGER.debug(
+                    "board candidate rejected: reason=low_pcb_structure structure=%.3f min=%.3f "
+                    "canonical=%.3f header=%.3f grid=%.3f color=%.3f geometry=%.3f verify=%.3f objectness=%.3f",
+                    structure.score,
+                    self._cfg.min_pcb_structure_score,
+                    structure.canonical_score,
+                    structure.header_score,
+                    structure.edge_grid_score,
+                    structure.color_score,
+                    geometry_score,
+                    verify_score,
+                    objectness_score,
+                )
+                continue
+            if tightness_score < self._cfg.min_tightness_score:
+                LOGGER.debug(
+                    "board candidate rejected: reason=loose_warp tightness=%.3f min=%.3f structure=%.3f geometry=%.3f verify=%.3f",
+                    tightness_score,
+                    self._cfg.min_tightness_score,
+                    structure.score,
+                    geometry_score,
+                    verify_score,
+                )
+                continue
+            warp_quality_score = self._warp_quality_score(
+                quad,
+                warped,
+                geometry_score,
+                verify_score,
+                objectness_score,
+                structure.score,
+                tightness_score,
+            )
 
             if self._references:
                 base_score = (
@@ -311,6 +407,8 @@ class BoardLocalizer:
                 verify_score=verify_score,
                 objectness_score=objectness_score,
                 warp_quality_score=warp_quality_score,
+                pcb_structure_score=structure.score,
+                tightness_score=tightness_score,
                 score=score,
                 homography=homography,
                 h_inv=np.linalg.inv(homography),
@@ -465,6 +563,232 @@ class BoardLocalizer:
 
         return 0.60 * dark_score + 0.40 * edge_score
 
+    def _refine_warp_tightness(
+        self,
+        frame: np.ndarray,
+        warped: np.ndarray,
+        homography: np.ndarray,
+        quad: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+        """
+        Tighten a plausible but loose board warp using the foreground PCB mask.
+
+        The refinement is intentionally conservative: it only crops inward when a
+        coherent dark/saturated PCB-like foreground fills enough of the canonical
+        view and keeps the expected board aspect. This helps reject/repair boxes
+        that include hand, face, wall, or monitor border around the actual PCB.
+        """
+        foreground = self._foreground_bbox_in_warp(warped)
+        if foreground is None:
+            return warped, homography, quad, 0.0
+
+        x, y, bw, bh, _fill_ratio = foreground
+        h, w = warped.shape[:2]
+        tightness = self._tightness_score_from_bbox(x, y, bw, bh, w, h)
+
+        coverage_x = bw / max(1.0, float(w))
+        coverage_y = bh / max(1.0, float(h))
+        aspect = bw / max(1.0, float(bh))
+        aspect_score = float(np.exp(-2.0 * abs(np.log(max(1e-6, aspect) / self._cfg.expected_aspect_ratio))))
+        should_refine = (
+            aspect_score >= 0.45
+            and coverage_x >= 0.50
+            and coverage_y >= 0.50
+            and (coverage_x < 0.94 or coverage_y < 0.94)
+        )
+        if not should_refine:
+            return warped, homography, quad, tightness
+
+        pad_x = int(round(0.035 * bw))
+        pad_y = int(round(0.045 * bh))
+        x1 = max(0, x - pad_x)
+        y1 = max(0, y - pad_y)
+        x2 = min(w - 1, x + bw + pad_x)
+        y2 = min(h - 1, y + bh + pad_y)
+        if x2 <= x1 or y2 <= y1:
+            return warped, homography, quad, tightness
+
+        canonical_pts = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float32).reshape(-1, 1, 2)
+        try:
+            source_pts = cv.perspectiveTransform(canonical_pts, np.linalg.inv(homography)).reshape(4, 2)
+        except np.linalg.LinAlgError:
+            return warped, homography, quad, tightness
+
+        out_w, out_h = self._cfg.output_size
+        dst = np.array(
+            [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
+            dtype=np.float32,
+        )
+        refined_h = cv.getPerspectiveTransform(source_pts.astype(np.float32), dst)
+        refined_warped = cv.warpPerspective(frame, refined_h, (out_w, out_h))
+        refined_foreground = self._foreground_bbox_in_warp(refined_warped)
+        if refined_foreground is None:
+            return warped, homography, quad, tightness
+
+        rx, ry, rbw, rbh, _ = refined_foreground
+        refined_tightness = self._tightness_score_from_bbox(rx, ry, rbw, rbh, out_w, out_h)
+        if refined_tightness + 0.03 < tightness:
+            return warped, homography, quad, tightness
+
+        LOGGER.debug(
+            "board warp refined: tightness %.3f -> %.3f coverage=(%.2f, %.2f) aspect_score=%.3f",
+            tightness,
+            refined_tightness,
+            coverage_x,
+            coverage_y,
+            aspect_score,
+        )
+        return refined_warped, refined_h, source_pts.astype(np.float32), max(tightness, refined_tightness)
+
+    def _foreground_bbox_in_warp(self, warped: np.ndarray) -> tuple[int, int, int, int, float] | None:
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        gray = normalize_gray(to_gray(warped))
+        hue = hsv[:, :, 0]
+        sat = hsv[:, :, 1]
+        val = hsv[:, :, 2]
+        skin = self._skin_mask(hue, sat, val)
+
+        dark_board = gray < 155
+        saturated_pcb = (sat > 45) & (val < 220)
+        mask = (dark_board | saturated_pcb) & ~skin
+        mask_u8 = (mask.astype(np.uint8)) * 255
+        kernel = np.ones((7, 7), np.uint8)
+        mask_u8 = cv.morphologyEx(mask_u8, cv.MORPH_CLOSE, kernel, iterations=2)
+        mask_u8 = cv.morphologyEx(mask_u8, cv.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
+
+        contours, _ = cv.findContours(mask_u8, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        h, w = gray.shape[:2]
+        min_area = 0.025 * h * w
+        kept = [contour for contour in contours if cv.contourArea(contour) >= min_area]
+        if not kept:
+            return None
+
+        points = np.vstack(kept)
+        x, y, bw, bh = cv.boundingRect(points)
+        fill_ratio = float(np.mean(mask_u8[y : y + bh, x : x + bw] > 0)) if bw > 0 and bh > 0 else 0.0
+        return int(x), int(y), int(bw), int(bh), fill_ratio
+
+    def _tightness_score_from_bbox(self, x: int, y: int, bw: int, bh: int, width: int, height: int) -> float:
+        coverage_x = bw / max(1.0, float(width))
+        coverage_y = bh / max(1.0, float(height))
+        coverage = float(np.sqrt(max(0.0, coverage_x * coverage_y)))
+        coverage_score = float(np.clip((coverage - 0.48) / 0.42, 0.0, 1.0))
+
+        margins = np.array(
+            [
+                x / max(1.0, float(width)),
+                y / max(1.0, float(height)),
+                (width - (x + bw)) / max(1.0, float(width)),
+                (height - (y + bh)) / max(1.0, float(height)),
+            ],
+            dtype=np.float32,
+        )
+        margin_score = float(np.clip(1.0 - np.max(margins) / 0.22, 0.0, 1.0))
+        aspect = bw / max(1.0, float(bh))
+        aspect_score = float(np.exp(-2.0 * abs(np.log(max(1e-6, aspect) / self._cfg.expected_aspect_ratio))))
+        return float(np.clip(0.46 * coverage_score + 0.34 * margin_score + 0.20 * aspect_score, 0.0, 1.0))
+
+    def _skin_mask(self, hue: np.ndarray, sat: np.ndarray, val: np.ndarray) -> np.ndarray:
+        red_or_orange = (hue < 24) | (hue > 168)
+        return red_or_orange & (sat > 32) & (sat < 185) & (val > 55) & (val < 245)
+
+    def _pcb_structure_metrics(self, warped: np.ndarray) -> _StructureMetrics:
+        hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+        gray = normalize_gray(to_gray(warped))
+        h, w = gray.shape[:2]
+        hue = hsv[:, :, 0]
+        sat = hsv[:, :, 1]
+        val = hsv[:, :, 2]
+        inner_slice = np.s_[int(0.06 * h) : int(0.94 * h), int(0.04 * w) : int(0.96 * w)]
+        inner_hue = hue[inner_slice]
+        inner_sat = sat[inner_slice]
+        inner_val = val[inner_slice]
+        skin_ratio = float(np.mean(self._skin_mask(inner_hue, inner_sat, inner_val))) if inner_hue.size else 0.0
+
+        edge_gray = clahe_gray(gray)
+        edges = cv.Canny(edge_gray, self._cfg.canny_t1, self._cfg.canny_t2)
+        inner_edges = edges[inner_slice]
+        edge_density = float(np.mean(inner_edges > 0)) if inner_edges.size else 0.0
+        edge_density_score = float(np.clip((edge_density - 0.025) / 0.12, 0.0, 1.0))
+        edge_grid_score = self._edge_grid_score(inner_edges)
+
+        inner_sat = sat[inner_slice]
+        inner_val = val[inner_slice]
+        dark_ratio = float(np.mean(inner_val < 135)) if inner_val.size else 0.0
+        saturated_ratio = float(np.mean((inner_sat > 42) & (inner_val < 220))) if inner_val.size else 0.0
+        color_score = float(np.clip((max(dark_ratio, saturated_ratio) - 0.16) / 0.42, 0.0, 1.0))
+
+        top_band = edges[int(0.05 * h) : int(0.24 * h), int(0.04 * w) : int(0.96 * w)]
+        bottom_band = edges[int(0.76 * h) : int(0.95 * h), int(0.04 * w) : int(0.96 * w)]
+
+        def header_band_score(band: np.ndarray) -> float:
+            if band.size == 0:
+                return 0.0
+            density = float(np.mean(band > 0))
+            column_mass = np.mean(band > 0, axis=0)
+            threshold = float(np.mean(column_mass) + 0.60 * np.std(column_mass))
+            peak_mask = column_mass > threshold
+            peaks = int(np.count_nonzero(peak_mask))
+            peak_score = float(np.clip((peaks - 8) / 34.0, 0.0, 1.0))
+            centers = np.flatnonzero(peak_mask)
+            if centers.size >= 8:
+                spacing = np.diff(centers.astype(np.float32))
+                spacing = spacing[spacing > 1.0]
+                regularity = 0.0
+                if spacing.size >= 4:
+                    regularity = float(np.clip(1.0 - (np.std(spacing) / max(1.0, np.mean(spacing))) / 1.8, 0.0, 1.0))
+                peak_score = 0.75 * peak_score + 0.25 * regularity
+            density_score = float(np.clip((density - 0.020) / 0.11, 0.0, 1.0))
+            return 0.55 * density_score + 0.45 * peak_score
+
+        top_score = header_band_score(top_band)
+        bottom_score = header_band_score(bottom_band)
+        header_score = 0.55 * max(top_score, bottom_score) + 0.45 * min(top_score, bottom_score)
+
+        canonical_score = self._canonical_structure_score(warped)
+        skin_penalty = float(np.clip(1.0 - skin_ratio / max(1e-6, self._cfg.max_skin_ratio), 0.0, 1.0))
+        score = (
+            0.28 * canonical_score
+            + 0.25 * header_score
+            + 0.18 * edge_density_score
+            + 0.14 * edge_grid_score
+            + 0.08 * color_score
+            + 0.07 * skin_penalty
+        )
+        return _StructureMetrics(
+            score=float(np.clip(score, 0.0, 1.0)),
+            skin_ratio=skin_ratio,
+            canonical_score=float(np.clip(canonical_score, 0.0, 1.0)),
+            header_score=float(np.clip(header_score, 0.0, 1.0)),
+            edge_density_score=float(np.clip(edge_density_score, 0.0, 1.0)),
+            edge_grid_score=float(np.clip(edge_grid_score, 0.0, 1.0)),
+            color_score=color_score,
+        )
+
+    @staticmethod
+    def _edge_grid_score(edges: np.ndarray) -> float:
+        if edges.size == 0:
+            return 0.0
+        rows, cols = 4, 6
+        h, w = edges.shape[:2]
+        active = 0
+        densities: list[float] = []
+        for row in range(rows):
+            y1 = int(round(row * h / rows))
+            y2 = int(round((row + 1) * h / rows))
+            for col in range(cols):
+                x1 = int(round(col * w / cols))
+                x2 = int(round((col + 1) * w / cols))
+                cell = edges[y1:y2, x1:x2]
+                density = float(np.mean(cell > 0)) if cell.size else 0.0
+                densities.append(density)
+                if density > 0.018:
+                    active += 1
+        occupancy_score = float(np.clip((active - 5) / 14.0, 0.0, 1.0))
+        density_balance = float(np.clip(np.percentile(densities, 75) / max(0.015, np.percentile(densities, 25) + 0.015), 0.0, 3.0))
+        balance_score = float(np.clip(density_balance / 2.2, 0.0, 1.0))
+        return float(np.clip(0.72 * occupancy_score + 0.28 * balance_score, 0.0, 1.0))
+
     def _warp_quality_score(
         self,
         quad: np.ndarray,
@@ -472,6 +796,8 @@ class BoardLocalizer:
         geometry_score: float,
         verify_score: float,
         objectness_score: float,
+        pcb_structure_score: float,
+        tightness_score: float,
     ) -> float:
         """
         Score whether the candidate warp is good enough for fixed canonical ROIs.
@@ -507,16 +833,16 @@ class BoardLocalizer:
         white_border_ratio = float(np.mean((border[:, 2] > 185) & (border[:, 1] < 70))) if border.size else 1.0
         border_fill_score = float(np.clip(1.0 - (white_border_ratio - 0.10) / 0.55, 0.0, 1.0))
 
-        canonical_score = self._canonical_structure_score(warped)
         verify_quality = float(np.clip((verify_score + 0.08) / 0.58, 0.0, 1.0)) if self._references else 1.0
 
         quality = (
-            0.22 * float(np.clip(geometry_score, 0.0, 1.0))
-            + 0.22 * verify_quality
-            + 0.22 * float(np.clip(objectness_score, 0.0, 1.0))
-            + 0.16 * border_fill_score
-            + 0.10 * edge_balance
-            + 0.08 * canonical_score
+            0.18 * float(np.clip(geometry_score, 0.0, 1.0))
+            + 0.19 * verify_quality
+            + 0.18 * float(np.clip(objectness_score, 0.0, 1.0))
+            + 0.15 * float(np.clip(pcb_structure_score, 0.0, 1.0))
+            + 0.12 * float(np.clip(tightness_score, 0.0, 1.0))
+            + 0.10 * border_fill_score
+            + 0.08 * edge_balance
         )
         return float(np.clip(quality, 0.0, 1.0))
 
@@ -562,10 +888,20 @@ class BoardLocalizer:
         original_score = self._orientation_score(warped)
         rotated_score = self._orientation_score(rotated)
         if rotated_score <= original_score:
+            LOGGER.debug(
+                "board orientation kept: original=%.3f rotated180=%.3f",
+                original_score,
+                rotated_score,
+            )
             return warped, homography
 
         out_w, out_h = self._cfg.output_size
         rotation = _rotation_180_matrix(out_w, out_h)
+        LOGGER.debug(
+            "board orientation rotated180: original=%.3f rotated180=%.3f",
+            original_score,
+            rotated_score,
+        )
         return rotated, rotation @ homography
 
     def _orientation_score(self, warped: np.ndarray) -> float:
