@@ -38,6 +38,17 @@ class StatsMatcher:
         return self._result
 
 
+class SequenceStatsMatcher:
+    def __init__(self, results: list[TemplateMatchResult]) -> None:
+        self._results = list(results)
+        self.calls = 0
+
+    def detect_best_with_stats(self, frame: np.ndarray) -> TemplateMatchResult:
+        index = min(self.calls, len(self._results) - 1)
+        self.calls += 1
+        return self._results[index]
+
+
 def _identity_localization(
     *,
     score: float = 0.90,
@@ -221,3 +232,86 @@ def test_component_visibility_can_rescue_near_threshold_match() -> None:
 
     detections = detector.detect(crop)
     assert sorted(det.label for det in detections) == ["BOARD", "ESP32"]
+
+
+def test_component_lock_searches_near_previous_canonical_bbox() -> None:
+    first = TemplateMatchResult(
+        detection=Detection(label="USB_PORT", score=0.82, bbox=BBox(100, 40, 140, 70)),
+        best_score=0.82,
+        second_score=0.20,
+        score_margin=0.62,
+    )
+    second_local = TemplateMatchResult(
+        detection=Detection(label="USB_PORT", score=0.76, bbox=BBox(5, 5, 45, 35)),
+        best_score=0.76,
+        second_score=0.20,
+        score_margin=0.56,
+    )
+    matcher = SequenceStatsMatcher([first, second_local])
+    detector = BoardFirstDetector(
+        localizer=DummyLocalizer(_identity_localization()),
+        component_matchers={"USB_PORT": matcher},
+        component_specs=[
+            ComponentSpec(
+                label="USB_PORT",
+                roi=RelativeROI(0.0, 0.0, 1.0, 1.0),
+                score_threshold=0.50,
+                keep_score_threshold=0.45,
+                min_board_area_ratio=0.001,
+                max_board_area_ratio=0.50,
+                local_search_expansion=0.50,
+                track_max_missing=2,
+            )
+        ],
+        cfg=BoardFirstConfig(temporal_window=1, temporal_min_hits=1, enable_tracking=True),
+    )
+
+    first_detections = detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
+    second_detections = detector.detect(np.zeros((100, 200, 3), dtype=np.uint8))
+
+    assert "USB_PORT" in [det.label for det in first_detections]
+    usb = next(det for det in second_detections if det.label == "USB_PORT")
+    assert usb.bbox.x1 > 70
+    assert matcher.calls == 2
+
+
+def test_reset_button_can_persist_from_local_track_evidence() -> None:
+    warped = np.zeros((100, 200, 3), dtype=np.uint8)
+    warped[35:55, 75:105] = 210
+    first = TemplateMatchResult(
+        detection=Detection(label="RESET_BUTTON", score=0.78, bbox=BBox(75, 35, 105, 55)),
+        best_score=0.78,
+        second_score=0.10,
+        score_margin=0.68,
+    )
+    missing = TemplateMatchResult(
+        detection=None,
+        best_score=-1.0,
+        second_score=-1.0,
+        score_margin=1.0,
+        reason="no_valid_template",
+    )
+    detector = BoardFirstDetector(
+        localizer=DummyLocalizer(_identity_localization(warped=warped)),
+        component_matchers={"RESET_BUTTON": SequenceStatsMatcher([first, missing])},
+        component_specs=[
+            ComponentSpec(
+                label="RESET_BUTTON",
+                roi=RelativeROI(0.0, 0.0, 1.0, 1.0),
+                score_threshold=0.60,
+                keep_score_threshold=0.50,
+                keep_min_visibility_score=0.05,
+                min_board_area_ratio=0.001,
+                max_board_area_ratio=0.20,
+                local_search_expansion=0.90,
+                track_max_missing=3,
+                persistence_decay=0.92,
+            )
+        ],
+        cfg=BoardFirstConfig(temporal_window=1, temporal_min_hits=1, enable_tracking=True),
+    )
+
+    detector.detect(warped)
+    detections = detector.detect(warped)
+
+    assert "RESET_BUTTON" in [det.label for det in detections]

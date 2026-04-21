@@ -77,6 +77,9 @@ tracking:
   max_pose_reuse_frames: 2
   reuse_min_warp_quality: 0.50
   reuse_score_decay: 0.92
+  board_smoothing_alpha: 0.55
+  board_smoothing_min_quality: 0.58
+  board_smoothing_max_shift: 0.055
 
 components:
   ESP32:
@@ -96,6 +99,13 @@ components:
     layout_fallback_min_visibility_score: 0.16
     visibility_weight: 0.20
     warp_quality_weight: 0.050
+    keep_score_threshold: 0.43
+    keep_min_visibility_score: 0.13
+    local_search_expansion: 0.32
+    track_max_missing: 2
+    track_smoothing_alpha: 0.55
+    position_prior_weight: 0.06
+    persistence_decay: 0.90
     min_score_margin: 0.015
     preprocess_mode: module
     scales: [0.75, 0.85, 0.95, 1.00, 1.05, 1.15]
@@ -121,6 +131,13 @@ components:
     layout_fallback_min_visibility_score: 0.14
     visibility_weight: 0.24
     warp_quality_weight: 0.040
+    keep_score_threshold: 0.43
+    keep_min_visibility_score: 0.12
+    local_search_expansion: 0.45
+    track_max_missing: 2
+    track_smoothing_alpha: 0.55
+    position_prior_weight: 0.08
+    persistence_decay: 0.88
     min_score_margin: 0.012
     preprocess_mode: metal
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
@@ -146,6 +163,13 @@ components:
     layout_fallback_min_visibility_score: 0.24
     visibility_weight: 0.22
     warp_quality_weight: 0.025
+    keep_score_threshold: 0.47
+    keep_min_visibility_score: 0.18
+    local_search_expansion: 0.55
+    track_max_missing: 2
+    track_smoothing_alpha: 0.58
+    position_prior_weight: 0.10
+    persistence_decay: 0.86
     min_score_margin: 0.035
     preprocess_mode: connector
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]
@@ -171,6 +195,13 @@ components:
     layout_fallback_min_visibility_score: 0.36
     visibility_weight: 0.12
     warp_quality_weight: 0.000
+    keep_score_threshold: 0.40
+    keep_min_visibility_score: 0.20
+    local_search_expansion: 0.85
+    track_max_missing: 4
+    track_smoothing_alpha: 0.65
+    position_prior_weight: 0.16
+    persistence_decay: 0.92
     min_score_margin: 0.055
     preprocess_mode: button
     scales: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20]

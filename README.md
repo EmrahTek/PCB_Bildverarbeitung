@@ -14,7 +14,9 @@ Proje klasik goruntu isleme icin tasarlandi ve Raspberry Pi 5 / Pi AI Camera tar
 - Board dogrulama, hiz icin kucultulmus verify kopyasinda yapilir.
 - Kucuk component'ler ROI icinde class-specific preprocessing, template/edge matching ve local visibility skoru ile aranir.
 - Template skoru dusuk ama board/warp/ROI kaniti guvenilir ise class-specific layout ROI fallback'i kullanilir.
-- Live modlarda onceki iyi board pozu kisa sure yeniden kullanilarak flicker azaltilir.
+- Live modlarda board pozu/homography stabilize edilir, component'ler kanonik board uzayinda kilitlenir ve acquire/keep hysteresis ile flicker azaltilir.
+
+Detector mantigi kamera markasina bagli degildir. Ayni klasik-CV akisi image, video, webcam, IDS ve ileride Raspberry Pi 5 + Pi AI Camera icin kullanilacak sekilde tasarlanmistir.
 
 ## Kurulum
 
@@ -348,7 +350,21 @@ Ana ayarlar `config/default.yaml` icindedir.
 - `components.*.preprocess_mode`: ROI icin class-specific local contrast/edge enhancement secimidir.
 - `components.*.min_visibility_score`: ROI icindeki lokal gorunurluk kanitini kontrol eder.
 - `components.*.warp_quality_weight`: warp kalitesi cok iyiyse ve ROI kaniti de varsa component skoruna kucuk bir destek verir.
+- `components.*.keep_score_threshold`: live tracking sirasinda onceki component kilidini korumak icin gereken daha dusuk keep esigidir.
+- `components.*.keep_min_visibility_score`: locked local search veya persistence icin gereken minimum ROI gorunurlugudur.
+- `components.*.local_search_expansion`: onceki kanonik component kutusu etrafindaki local search penceresinin buyuklugudur.
+- `components.*.track_max_missing`: component'in kac kare dusuk kanit ile kisa sure korunabilecegini belirler.
+- `components.*.position_prior_weight`: template/edge skoruna layout veya onceki track pozisyonundan gelen kucuk, kaynak-bagimsiz destek verir.
+- `tracking.board_smoothing_alpha`: live modda yeni board pozu ile onceki guvenilir board pozunun karisim oranidir.
+- `tracking.board_smoothing_min_quality`: board pozu stabilize edilmeden once gereken minimum warp kalitesidir.
+- `tracking.board_smoothing_max_shift`: ani buyuk hareketlerde smoothing'i kapatip yeni pozu oldugu gibi kullanmak icin limitdir.
 - `source_profiles.video`, `source_profiles.webcam` ve `source_profiles.ids`: live kullanim icin daha hafif/uygun ayarlari override eder.
+
+Live stabilization kaynak-bagimsizdir:
+
+- Board smoothing sadece hem onceki hem yeni warp kaliteli ve hareket kucukse uygulanir.
+- Component locking, frame uzayinda degil kanonik board uzayinda yapilir; bu nedenle IDS, webcam, video ve Pi kamera icin ayni mantik calisir.
+- ESP32 ve USB daha esnek tutulur; JST daha fazla local visibility ister; RESET_BUTTON en guclu pozisyon onceligi ve temporal persistence kullanir.
 
 ## Raspberry Pi 5 Icin
 

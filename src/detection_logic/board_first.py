@@ -46,6 +46,13 @@ class ComponentSpec:
     layout_fallback_min_visibility_score: float = 0.0
     visibility_weight: float = 0.0
     warp_quality_weight: float = 0.0
+    keep_score_threshold: float = 0.0
+    keep_min_visibility_score: float = 0.0
+    local_search_expansion: float = 0.55
+    track_max_missing: int = 2
+    track_smoothing_alpha: float = 0.55
+    position_prior_weight: float = 0.0
+    persistence_decay: float = 0.88
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,27 @@ class BoardFirstConfig:
     max_pose_reuse_frames: int = 2
     reuse_min_warp_quality: float = 0.48
     reuse_score_decay: float = 0.92
+    board_smoothing_alpha: float = 0.55
+    board_smoothing_min_quality: float = 0.58
+    board_smoothing_max_shift: float = 0.055
+
+
+@dataclass(frozen=True)
+class _ComponentTrack:
+    canonical_bbox: BBox
+    score: float
+    visibility_score: float
+    missing_frames: int = 0
+    hits: int = 1
+
+
+@dataclass(frozen=True)
+class _ComponentCandidate:
+    canonical_bbox: BBox
+    score: float
+    visibility_score: float
+    match_result: TemplateMatchResult
+    mode: str
 
 
 class BoardFirstDetector(Detector):
@@ -88,6 +116,7 @@ class BoardFirstDetector(Detector):
         self._last_localization: BoardLocalization | None = None
         self._last_coarse_bbox: BBox | None = None
         self._last_coarse_bboxes: list[BBox] = []
+        self._component_tracks: dict[str, _ComponentTrack] = {}
         self._missing_frames = 0
         self._frame_index = 0
 
@@ -117,17 +146,20 @@ class BoardFirstDetector(Detector):
                 self._last_localization = None
                 self._last_coarse_bbox = None
                 self._last_coarse_bboxes = []
+                self._component_tracks.clear()
                 self._temporal.reset()
                 LOGGER.debug("temporal state reset after %d missing board frames", self._missing_frames)
                 return []
             return self._temporal.update([])
 
+        localization = self._stabilize_localization(frame, localization)
         if self._cfg.enable_tracking:
             self._last_board_bbox = localization.bbox
             self._last_localization = localization
         else:
             self._last_board_bbox = None
             self._last_localization = None
+            self._component_tracks.clear()
         self._missing_frames = 0
 
         detections = [Detection(label="BOARD", score=localization.score, bbox=localization.bbox)]
@@ -161,6 +193,62 @@ class BoardFirstDetector(Detector):
             tightness_score=last.tightness_score,
         )
 
+    def _stabilize_localization(self, frame: np.ndarray, localization: BoardLocalization) -> BoardLocalization:
+        if not self._cfg.enable_tracking or self._last_localization is None:
+            return localization
+        if localization.warp_quality_score < self._cfg.board_smoothing_min_quality:
+            return localization
+        last = self._last_localization
+        if last.warp_quality_score < self._cfg.board_smoothing_min_quality:
+            return localization
+
+        shift = self._normalized_quad_shift(localization.quad, last.quad, last.bbox)
+        if shift > self._cfg.board_smoothing_max_shift:
+            LOGGER.debug(
+                "board pose smoothing skipped: shift=%.3f max=%.3f score=%.3f warp_quality=%.3f",
+                shift,
+                self._cfg.board_smoothing_max_shift,
+                localization.score,
+                localization.warp_quality_score,
+            )
+            return localization
+
+        alpha = float(np.clip(self._cfg.board_smoothing_alpha, 0.05, 1.0))
+        smoothed_quad = (alpha * localization.quad + (1.0 - alpha) * last.quad).astype(np.float32)
+        out_h, out_w = localization.warped.shape[:2]
+        dst = np.array(
+            [[0, 0], [out_w - 1, 0], [out_w - 1, out_h - 1], [0, out_h - 1]],
+            dtype=np.float32,
+        )
+        homography = cv.getPerspectiveTransform(smoothed_quad, dst)
+        try:
+            h_inv = np.linalg.inv(homography)
+        except np.linalg.LinAlgError:
+            return localization
+        warped = cv.warpPerspective(frame, homography, (out_w, out_h))
+        bbox = self._quad_to_bbox(smoothed_quad, frame.shape)
+        LOGGER.debug(
+            "board pose smoothed: alpha=%.2f shift=%.3f bbox=%s warp_quality=%.3f",
+            alpha,
+            shift,
+            bbox,
+            localization.warp_quality_score,
+        )
+        return BoardLocalization(
+            quad=smoothed_quad,
+            bbox=bbox,
+            homography=homography,
+            h_inv=h_inv,
+            warped=warped,
+            score=localization.score,
+            warp_quality_score=localization.warp_quality_score,
+            geometry_score=localization.geometry_score,
+            verify_score=localization.verify_score,
+            objectness_score=localization.objectness_score,
+            pcb_structure_score=localization.pcb_structure_score,
+            tightness_score=localization.tightness_score,
+        )
+
     def _detect_components(self, localization: BoardLocalization, frame_shape: tuple[int, ...]) -> list[Detection]:
         out: list[Detection] = []
         for spec in self._component_specs:
@@ -174,71 +262,259 @@ class BoardFirstDetector(Detector):
                     localization,
                     None,
                 )
+                self._mark_component_missing(spec)
                 continue
 
             roi_bbox = self._roi_to_bbox(spec.roi, localization.warped.shape)
-            crop = localization.warped[roi_bbox.y1:roi_bbox.y2, roi_bbox.x1:roi_bbox.x2]
-            if crop.size == 0:
+            if roi_bbox.area() <= 0:
                 self._log_component_rejection(spec, "empty_roi", localization, None)
+                self._mark_component_missing(spec)
                 continue
 
-            visibility_score = self._roi_visibility_score(spec.label, crop)
-            match_result = self._detect_component_in_roi(matcher, crop)
-            detection = self._select_detection_with_visibility(
+            track = self._component_tracks.get(spec.label) if self._cfg.enable_tracking else None
+            candidate = self._detect_component_with_lock(
                 spec,
-                match_result,
-                visibility_score,
-                localization.warp_quality_score,
+                matcher,
+                localization,
+                roi_bbox,
+                track,
             )
-            if detection is None or detection.score < spec.score_threshold:
-                self._log_component_rejection(
-                    spec,
-                    match_result.reason or "low_template_score",
-                    localization,
-                    match_result,
-                    visibility_score,
-                )
+
+            if candidate is None:
+                fallback_crop = localization.warped[roi_bbox.y1:roi_bbox.y2, roi_bbox.x1:roi_bbox.x2]
+                visibility_score = self._roi_visibility_score(spec.label, fallback_crop) if fallback_crop.size else -1.0
+                match_result = self._detect_component_in_roi(matcher, fallback_crop) if fallback_crop.size else None
                 fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result, visibility_score)
                 if fallback is not None:
+                    canonical_fallback = self._roi_to_bbox(spec.layout_roi, localization.warped.shape) if spec.layout_roi else None
+                    if canonical_fallback is not None:
+                        self._update_component_track(spec, canonical_fallback, fallback.score, max(0.0, visibility_score), "layout")
                     out.append(fallback)
-                continue
-            if visibility_score < spec.min_visibility_score:
-                self._log_component_rejection(
-                    spec,
-                    "low_roi_visibility",
-                    localization,
-                    match_result,
-                    visibility_score,
-                )
-                fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result, visibility_score)
-                if fallback is not None:
-                    out.append(fallback)
+                    continue
+                self._mark_component_missing(spec)
                 continue
 
-            canonical_bbox = BBox(
-                roi_bbox.x1 + detection.bbox.x1,
-                roi_bbox.y1 + detection.bbox.y1,
-                roi_bbox.x1 + detection.bbox.x2,
-                roi_bbox.y1 + detection.bbox.y2,
-            )
-            mapped_bbox = map_bbox_with_homography(canonical_bbox, localization.h_inv, frame_shape)
+            mapped_bbox = map_bbox_with_homography(candidate.canonical_bbox, localization.h_inv, frame_shape)
             if mapped_bbox is None or mapped_bbox.area() <= 0:
-                self._log_component_rejection(spec, "homography_mapping_failed", localization, match_result, visibility_score)
-                fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result, visibility_score)
+                self._log_component_rejection(
+                    spec,
+                    "homography_mapping_failed",
+                    localization,
+                    candidate.match_result,
+                    candidate.visibility_score,
+                )
+                fallback = self._layout_fallback_detection(
+                    spec,
+                    localization,
+                    frame_shape,
+                    candidate.match_result,
+                    candidate.visibility_score,
+                )
                 if fallback is not None:
                     out.append(fallback)
+                self._mark_component_missing(spec)
                 continue
             sanity_reason = self._component_sanity_reason(spec, mapped_bbox, localization.bbox)
             if sanity_reason is not None:
-                self._log_component_rejection(spec, sanity_reason, localization, match_result, visibility_score)
-                fallback = self._layout_fallback_detection(spec, localization, frame_shape, match_result, visibility_score)
+                self._log_component_rejection(
+                    spec,
+                    sanity_reason,
+                    localization,
+                    candidate.match_result,
+                    candidate.visibility_score,
+                )
+                fallback = self._layout_fallback_detection(
+                    spec,
+                    localization,
+                    frame_shape,
+                    candidate.match_result,
+                    candidate.visibility_score,
+                )
                 if fallback is not None:
                     out.append(fallback)
+                self._mark_component_missing(spec)
                 continue
 
-            self._log_component_acceptance(spec, detection.score, localization, match_result, visibility_score)
-            out.append(Detection(label=spec.label, score=detection.score, bbox=mapped_bbox))
+            self._log_component_acceptance(
+                spec,
+                candidate.score,
+                localization,
+                candidate.match_result,
+                candidate.visibility_score,
+                candidate.mode,
+            )
+            self._update_component_track(
+                spec,
+                candidate.canonical_bbox,
+                candidate.score,
+                candidate.visibility_score,
+                candidate.mode,
+            )
+            out.append(Detection(label=spec.label, score=candidate.score, bbox=mapped_bbox))
         return out
+
+    def _detect_component_with_lock(
+        self,
+        spec: ComponentSpec,
+        matcher: TemplateMatcher,
+        localization: BoardLocalization,
+        roi_bbox: BBox,
+        track: _ComponentTrack | None,
+    ) -> _ComponentCandidate | None:
+        if self._cfg.enable_tracking and track is not None and track.missing_frames <= spec.track_max_missing:
+            locked_window = self._locked_search_window(track.canonical_bbox, roi_bbox, localization.warped.shape, spec)
+            LOGGER.debug(
+                "component local search: label=%s window=%s previous=%s missing=%d",
+                spec.label,
+                locked_window,
+                track.canonical_bbox,
+                track.missing_frames,
+            )
+            keep_candidate = self._match_component_window(
+                spec,
+                matcher,
+                localization,
+                locked_window,
+                threshold=self._keep_score_threshold(spec),
+                min_visibility=self._keep_min_visibility_score(spec),
+                mode="locked",
+                track=track,
+            )
+            if keep_candidate is not None:
+                return keep_candidate
+
+            persisted = self._persistent_component_candidate(spec, localization, locked_window, track)
+            if persisted is not None:
+                return persisted
+
+        return self._match_component_window(
+            spec,
+            matcher,
+            localization,
+            roi_bbox,
+            threshold=spec.score_threshold,
+            min_visibility=spec.min_visibility_score,
+            mode="full",
+            track=track,
+        )
+
+    def _match_component_window(
+        self,
+        spec: ComponentSpec,
+        matcher: TemplateMatcher,
+        localization: BoardLocalization,
+        search_bbox: BBox,
+        *,
+        threshold: float,
+        min_visibility: float,
+        mode: str,
+        track: _ComponentTrack | None,
+    ) -> _ComponentCandidate | None:
+        search_bbox = self._clip_bbox(search_bbox, localization.warped.shape)
+        crop = localization.warped[search_bbox.y1:search_bbox.y2, search_bbox.x1:search_bbox.x2]
+        if crop.size == 0:
+            return None
+
+        visibility_score = self._roi_visibility_score(spec.label, crop)
+        match_result = self._detect_component_in_roi(matcher, crop)
+        detection = self._select_detection_with_visibility(
+            spec,
+            match_result,
+            visibility_score,
+            localization.warp_quality_score,
+            threshold=threshold,
+            min_visibility=min_visibility,
+        )
+        if detection is None:
+            LOGGER.debug(
+                "component window rejected: label=%s mode=%s reason=%s threshold=%.3f "
+                "match=%.3f visibility=%.3f min_visibility=%.3f window=%s",
+                spec.label,
+                mode,
+                match_result.reason or "low_score",
+                threshold,
+                match_result.best_score,
+                visibility_score,
+                min_visibility,
+                search_bbox,
+            )
+            return None
+
+        canonical_bbox = BBox(
+            search_bbox.x1 + detection.bbox.x1,
+            search_bbox.y1 + detection.bbox.y1,
+            search_bbox.x1 + detection.bbox.x2,
+            search_bbox.y1 + detection.bbox.y2,
+        )
+        score = self._score_with_position_prior(spec, canonical_bbox, detection.score, localization.warped.shape, track)
+        if score < threshold:
+            LOGGER.debug(
+                "component window rejected: label=%s mode=%s reason=low_prior_fused_score "
+                "score=%.3f threshold=%.3f raw=%.3f window=%s canonical=%s",
+                spec.label,
+                mode,
+                score,
+                threshold,
+                detection.score,
+                search_bbox,
+                canonical_bbox,
+            )
+            return None
+
+        LOGGER.debug(
+            "component window accepted: label=%s mode=%s score=%.3f raw=%.3f visibility=%.3f "
+            "match=%.3f threshold=%.3f window=%s canonical=%s",
+            spec.label,
+            mode,
+            score,
+            detection.score,
+            visibility_score,
+            match_result.best_score,
+            threshold,
+            search_bbox,
+            canonical_bbox,
+        )
+        return _ComponentCandidate(canonical_bbox, score, visibility_score, match_result, mode)
+
+    def _persistent_component_candidate(
+        self,
+        spec: ComponentSpec,
+        localization: BoardLocalization,
+        search_bbox: BBox,
+        track: _ComponentTrack,
+    ) -> _ComponentCandidate | None:
+        if track.missing_frames >= spec.track_max_missing:
+            return None
+        if localization.warp_quality_score < max(spec.min_warp_quality_score, spec.layout_fallback_min_warp_quality):
+            return None
+
+        crop = localization.warped[search_bbox.y1:search_bbox.y2, search_bbox.x1:search_bbox.x2]
+        visibility_score = self._roi_visibility_score(spec.label, crop) if crop.size else 0.0
+        min_visibility = self._keep_min_visibility_score(spec)
+        if visibility_score < min_visibility:
+            return None
+
+        score = float(np.clip(track.score * spec.persistence_decay, 0.0, 1.0))
+        if score < self._keep_score_threshold(spec):
+            return None
+
+        LOGGER.debug(
+            "component kept by persistence: label=%s score=%.3f previous=%.3f visibility=%.3f "
+            "missing=%d canonical=%s",
+            spec.label,
+            score,
+            track.score,
+            visibility_score,
+            track.missing_frames,
+            track.canonical_bbox,
+        )
+        return _ComponentCandidate(
+            canonical_bbox=track.canonical_bbox,
+            score=score,
+            visibility_score=visibility_score,
+            match_result=TemplateMatchResult(None, -1.0, -1.0, 1.0, "persistent_track"),
+            mode="persistent",
+        )
 
     def _select_detection_with_visibility(
         self,
@@ -246,7 +522,14 @@ class BoardFirstDetector(Detector):
         match_result: TemplateMatchResult,
         visibility_score: float,
         warp_quality_score: float,
+        *,
+        threshold: float | None = None,
+        min_visibility: float | None = None,
     ) -> Detection | None:
+        accept_threshold = spec.score_threshold if threshold is None else threshold
+        visibility_threshold = spec.min_visibility_score if min_visibility is None else min_visibility
+        if visibility_score < visibility_threshold:
+            return None
         detection = match_result.detection
         if detection is not None:
             if spec.visibility_weight <= 0.0:
@@ -262,8 +545,6 @@ class BoardFirstDetector(Detector):
 
         if match_result.reason != "low_score" or match_result.candidate is None:
             return None
-        if visibility_score < spec.min_visibility_score:
-            return None
         fused_score = self._fused_component_score(
             match_result.best_score,
             visibility_score,
@@ -271,7 +552,7 @@ class BoardFirstDetector(Detector):
             warp_quality_score,
             spec.warp_quality_weight,
         )
-        if fused_score < spec.score_threshold:
+        if fused_score < accept_threshold:
             return None
         return Detection(label=match_result.candidate.label, score=fused_score, bbox=match_result.candidate.bbox)
 
@@ -288,6 +569,51 @@ class BoardFirstDetector(Detector):
         warp_support = np.clip((warp_quality_score - 0.58) / 0.32, 0.0, 1.0) * np.clip(visibility_score, 0.0, 1.0)
         score += float(np.clip(warp_quality_weight, 0.0, 0.08)) * warp_support
         return float(np.clip(score, 0.0, 1.0))
+
+    def _score_with_position_prior(
+        self,
+        spec: ComponentSpec,
+        canonical_bbox: BBox,
+        score: float,
+        warped_shape: tuple[int, ...],
+        track: _ComponentTrack | None,
+    ) -> float:
+        weight = float(np.clip(spec.position_prior_weight, 0.0, 0.20))
+        if weight <= 0.0:
+            return score
+        layout_prior = self._layout_position_prior(spec, canonical_bbox, warped_shape)
+        track_prior = self._track_position_prior(canonical_bbox, track) if track is not None else 0.0
+        prior = max(layout_prior, track_prior)
+        fused = (1.0 - weight) * score + weight * prior
+        LOGGER.debug(
+            "component position prior: label=%s raw=%.3f prior=%.3f layout=%.3f track=%.3f fused=%.3f",
+            spec.label,
+            score,
+            prior,
+            layout_prior,
+            track_prior,
+            fused,
+        )
+        return float(np.clip(fused, 0.0, 1.0))
+
+    def _layout_position_prior(self, spec: ComponentSpec, canonical_bbox: BBox, warped_shape: tuple[int, ...]) -> float:
+        expected_roi = spec.layout_roi or spec.roi
+        expected_bbox = self._roi_to_bbox(expected_roi, warped_shape)
+        return self._center_prior(canonical_bbox, expected_bbox, scale=0.65)
+
+    @staticmethod
+    def _track_position_prior(canonical_bbox: BBox, track: _ComponentTrack | None) -> float:
+        if track is None:
+            return 0.0
+        return BoardFirstDetector._center_prior(canonical_bbox, track.canonical_bbox, scale=0.75)
+
+    @staticmethod
+    def _center_prior(candidate: BBox, expected: BBox, *, scale: float) -> float:
+        cx, cy = BoardFirstDetector._bbox_center(candidate)
+        ex, ey = BoardFirstDetector._bbox_center(expected)
+        diag = max(1.0, float(np.hypot(expected.width(), expected.height())))
+        dist = float(np.hypot(cx - ex, cy - ey))
+        return float(np.exp(-dist / max(1e-6, scale * diag)))
 
     @staticmethod
     def _detect_component_in_roi(matcher: TemplateMatcher, crop: np.ndarray) -> TemplateMatchResult:
@@ -456,6 +782,88 @@ class BoardFirstDetector(Detector):
             best = max(best, 0.45 * rectangularity + 0.35 * area_score + 0.20 * aspect_score)
         return float(np.clip(best, 0.0, 1.0))
 
+    def _update_component_track(
+        self,
+        spec: ComponentSpec,
+        canonical_bbox: BBox,
+        score: float,
+        visibility_score: float,
+        mode: str,
+    ) -> None:
+        if not self._cfg.enable_tracking:
+            return
+        previous = self._component_tracks.get(spec.label)
+        if previous is not None and mode != "full":
+            alpha = float(np.clip(spec.track_smoothing_alpha, 0.05, 1.0))
+            canonical_bbox = self._smooth_bbox(previous.canonical_bbox, canonical_bbox, alpha)
+            hits = previous.hits + 1
+        elif previous is not None:
+            hits = previous.hits + 1
+        else:
+            hits = 1
+        self._component_tracks[spec.label] = _ComponentTrack(
+            canonical_bbox=canonical_bbox,
+            score=float(score),
+            visibility_score=float(visibility_score),
+            missing_frames=0,
+            hits=hits,
+        )
+        LOGGER.debug(
+            "component track updated: label=%s mode=%s canonical=%s score=%.3f visibility=%.3f hits=%d",
+            spec.label,
+            mode,
+            canonical_bbox,
+            score,
+            visibility_score,
+            hits,
+        )
+
+    def _mark_component_missing(self, spec: ComponentSpec) -> None:
+        if not self._cfg.enable_tracking:
+            return
+        track = self._component_tracks.get(spec.label)
+        if track is None:
+            return
+        missing = track.missing_frames + 1
+        if missing > spec.track_max_missing:
+            LOGGER.debug("component track dropped: label=%s missing=%d", spec.label, missing)
+            self._component_tracks.pop(spec.label, None)
+            return
+        self._component_tracks[spec.label] = _ComponentTrack(
+            canonical_bbox=track.canonical_bbox,
+            score=track.score * spec.persistence_decay,
+            visibility_score=track.visibility_score,
+            missing_frames=missing,
+            hits=track.hits,
+        )
+        LOGGER.debug(
+            "component track missing: label=%s missing=%d score=%.3f canonical=%s",
+            spec.label,
+            missing,
+            track.score * spec.persistence_decay,
+            track.canonical_bbox,
+        )
+
+    def _locked_search_window(
+        self,
+        canonical_bbox: BBox,
+        roi_bbox: BBox,
+        warped_shape: tuple[int, ...],
+        spec: ComponentSpec,
+    ) -> BBox:
+        expanded = self._expand_bbox(canonical_bbox, spec.local_search_expansion, warped_shape)
+        return self._intersect_bbox(expanded, roi_bbox) or roi_bbox
+
+    def _keep_score_threshold(self, spec: ComponentSpec) -> float:
+        if spec.keep_score_threshold > 0.0:
+            return spec.keep_score_threshold
+        return max(0.05, spec.score_threshold - 0.08)
+
+    def _keep_min_visibility_score(self, spec: ComponentSpec) -> float:
+        if spec.keep_min_visibility_score > 0.0:
+            return spec.keep_min_visibility_score
+        return max(0.0, spec.min_visibility_score - 0.06)
+
     @staticmethod
     def _roi_to_bbox(roi: RelativeROI, shape: tuple[int, ...]) -> BBox:
         height, width = shape[:2]
@@ -502,6 +910,67 @@ class BoardFirstDetector(Detector):
         inter_h = max(0, inter_y2 - inter_y1)
         inter_area = inter_w * inter_h
         return inter_area / max(1, inner.area())
+
+    @staticmethod
+    def _smooth_bbox(previous: BBox, current: BBox, alpha: float) -> BBox:
+        return BBox(
+            int(round(alpha * current.x1 + (1.0 - alpha) * previous.x1)),
+            int(round(alpha * current.y1 + (1.0 - alpha) * previous.y1)),
+            int(round(alpha * current.x2 + (1.0 - alpha) * previous.x2)),
+            int(round(alpha * current.y2 + (1.0 - alpha) * previous.y2)),
+        )
+
+    @staticmethod
+    def _expand_bbox(bbox: BBox, expansion: float, shape: tuple[int, ...]) -> BBox:
+        height, width = shape[:2]
+        cx, cy = BoardFirstDetector._bbox_center(bbox)
+        half_w = 0.5 * max(1.0, bbox.width()) * (1.0 + 2.0 * max(0.0, expansion))
+        half_h = 0.5 * max(1.0, bbox.height()) * (1.0 + 2.0 * max(0.0, expansion))
+        return BBox(
+            int(max(0, np.floor(cx - half_w))),
+            int(max(0, np.floor(cy - half_h))),
+            int(min(width, np.ceil(cx + half_w))),
+            int(min(height, np.ceil(cy + half_h))),
+        )
+
+    @staticmethod
+    def _intersect_bbox(a: BBox, b: BBox) -> BBox | None:
+        x1 = max(a.x1, b.x1)
+        y1 = max(a.y1, b.y1)
+        x2 = min(a.x2, b.x2)
+        y2 = min(a.y2, b.y2)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return BBox(x1, y1, x2, y2)
+
+    @staticmethod
+    def _clip_bbox(bbox: BBox, shape: tuple[int, ...]) -> BBox:
+        height, width = shape[:2]
+        return BBox(
+            int(np.clip(bbox.x1, 0, width)),
+            int(np.clip(bbox.y1, 0, height)),
+            int(np.clip(bbox.x2, 0, width)),
+            int(np.clip(bbox.y2, 0, height)),
+        )
+
+    @staticmethod
+    def _bbox_center(bbox: BBox) -> tuple[float, float]:
+        return 0.5 * (bbox.x1 + bbox.x2), 0.5 * (bbox.y1 + bbox.y2)
+
+    @staticmethod
+    def _quad_to_bbox(quad: np.ndarray, frame_shape: tuple[int, ...]) -> BBox:
+        height, width = frame_shape[:2]
+        return BBox(
+            int(max(0, np.floor(np.min(quad[:, 0])))),
+            int(max(0, np.floor(np.min(quad[:, 1])))),
+            int(min(width, np.ceil(np.max(quad[:, 0])))),
+            int(min(height, np.ceil(np.max(quad[:, 1])))),
+        )
+
+    @staticmethod
+    def _normalized_quad_shift(current: np.ndarray, previous: np.ndarray, previous_bbox: BBox) -> float:
+        diag = max(1.0, float(np.hypot(previous_bbox.width(), previous_bbox.height())))
+        return float(np.mean(np.linalg.norm(current.astype(np.float32) - previous.astype(np.float32), axis=1)) / diag)
 
     def _localize_from_hints(
         self,
@@ -593,13 +1062,15 @@ class BoardFirstDetector(Detector):
         localization: BoardLocalization,
         match_result: TemplateMatchResult | None,
         visibility_score: float,
+        mode: str = "full",
     ) -> None:
         if not LOGGER.isEnabledFor(logging.DEBUG):
             return
         LOGGER.debug(
-            "component accepted: label=%s score=%.3f board_score=%.3f warp_quality=%.3f "
+            "component accepted: label=%s mode=%s score=%.3f board_score=%.3f warp_quality=%.3f "
             "match=%.3f second=%.3f margin=%.3f visibility=%.3f visibility_weight=%.3f warp_weight=%.3f",
             spec.label,
+            mode,
             fused_score,
             localization.score,
             localization.warp_quality_score,
