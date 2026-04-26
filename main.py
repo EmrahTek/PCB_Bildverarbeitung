@@ -13,6 +13,7 @@ from src.app.pipeline import Pipeline, PipelineConfig
 from src.camera_input.base import FrameSource
 from src.camera_input.ids import IDSCameraConfig, IDSCameraSource, discover_video_devices, pyueye_available
 from src.camera_input.image import ImageFileConfig, ImageFileSource, ImageFolderConfig, ImageFolderSource
+from src.camera_input.picamera import PiCameraConfig, PiCameraSource, picamera2_available
 from src.camera_input.video_file import VideoFileConfig, VideoFileSource
 from src.camera_input.webcam import WebcamConfig, WebcamSource
 from src.detection_logic.board_first import BoardFirstConfig, BoardFirstDetector, ComponentSpec, RelativeROI
@@ -49,6 +50,7 @@ def _print_video_devices() -> None:
     print(f"  OpenCV CAP_V4L2 available: {_opencv_backend_available('CAP_V4L2')}")
     print(f"  OpenCV CAP_UEYE available: {_opencv_backend_available('CAP_UEYE')}")
     print(f"  pyueye installed: {pyueye_available()}")
+    print(f"  Picamera2 installed: {picamera2_available()}")
 
 
 class ResizePreprocessor:
@@ -95,6 +97,17 @@ def build_source(args) -> FrameSource:
                 use_mjpg=not args.disable_mjpg,
                 buffer_size=args.camera_buffer,
                 source_name="webcam",
+            )
+        )
+
+    if args.source == "picamera":
+        return PiCameraSource(
+            PiCameraConfig(
+                camera_num=args.camera_index,
+                width=args.width,
+                height=args.height,
+                target_fps=args.camera_fps,
+                buffer_count=args.camera_buffer,
             )
         )
 
@@ -402,7 +415,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
     specs, matchers = _component_specs_and_matchers(config, prepared_bank, template_rotation_turns)
     LOGGER.info("Enabled component matchers: %s", sorted(matchers.keys()))
 
-    live_sources = {"webcam", "video", "ids"}
+    live_sources = {"webcam", "video", "ids", "picamera"}
     temporal_window = int(tracking_cfg["temporal_window"]) if source in live_sources else 1
     temporal_min_hits = int(tracking_cfg["temporal_min_hits"]) if source in live_sources else 1
     enable_tracking = source in live_sources
@@ -447,8 +460,8 @@ def main() -> None:
     LOGGER.info("Using source profile: %s", args.source)
 
     if args.camera_open_check:
-        if args.source not in {"webcam", "ids"}:
-            raise ValueError("--camera-open-check is only valid with --source webcam or --source ids")
+        if args.source not in {"webcam", "ids", "picamera"}:
+            raise ValueError("--camera-open-check is only valid with --source webcam, --source ids, or --source picamera")
         source = build_source(args)
         try:
             try:
@@ -498,7 +511,7 @@ def main() -> None:
             wait_ms=args.wait_ms,
         )
     except RuntimeError as exc:
-        if args.source in {"webcam", "ids"}:
+        if args.source in {"webcam", "ids", "picamera"}:
             LOGGER.error("Camera runtime failed: %s", exc)
             raise SystemExit(2) from None
         raise

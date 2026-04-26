@@ -3,10 +3,10 @@
   "num_successes": 17,
   "num_failures": 3,
   "best_image": {
-    "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9763.JPG",
-    "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
-    "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9763_preview.png",
-    "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9763_mask.png",
+    "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9763.JPG",
+    "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+    "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9763_preview.png",
+    "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9763_mask.png",
     "board_found": true,
     "detection_method": "min_area_rect",
     "board_area_ratio": 0.0924,
@@ -26,10 +26,10 @@
   },
   "all_results": [
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9763.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9763_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9763_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9763.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9763_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9763_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0924,
@@ -48,10 +48,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9757.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9757_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9757_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9757.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9757_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9757_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0589,
@@ -59,7 +59,7 @@
       "canonical_rotation_deg": 0,
       "canonical_right_minus_left_brightness": 75.001,
       "metrics": {
-        "sharpness": 1655.837,
+        "sharpness": 1655.863,
         "contrast": 67.857,
         "brightness_mean": 73.389,
         "brightness_std": 67.857,
@@ -70,10 +70,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9766.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9766_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9766_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9766.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9766_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9766_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0843,
@@ -81,7 +81,7 @@
       "canonical_rotation_deg": 0,
       "canonical_right_minus_left_brightness": 71.334,
       "metrics": {
-        "sharpness": 1990.28,
+        "sharpness": 1990.302,
         "contrast": 68.135,
         "brightness_mean": 72.477,
         "brightness_std": 68.135,
@@ -92,10 +92,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9751.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9751_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9751_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9751_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9751.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9751_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9751_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9751_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.1165,
@@ -103,7 +103,7 @@
       "canonical_rotation_deg": 0,
       "canonical_right_minus_left_brightness": 31.463,
       "metrics": {
-        "sharpness": 1348.209,
+        "sharpness": 1348.174,
         "contrast": 62.245,
         "brightness_mean": 60.541,
         "brightness_std": 62.245,
@@ -114,10 +114,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9749.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9749_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9749_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9749_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9749.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9749_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9749_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9749_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0974,
@@ -136,10 +136,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9767.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9767_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9767_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9767_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9767.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9767_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9767_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9767_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.5634,
@@ -158,10 +158,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9748.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9748_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9748_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9748_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9748.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9748_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9748_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9748_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.078,
@@ -180,20 +180,20 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9746.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9746_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9746_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9746_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9746.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9746_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9746_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9746_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0411,
       "aspect_ratio": 2.004300117492676,
       "canonical_rotation_deg": 0,
-      "canonical_right_minus_left_brightness": 54.428,
+      "canonical_right_minus_left_brightness": 54.429,
       "metrics": {
-        "sharpness": 1300.241,
+        "sharpness": 1300.252,
         "contrast": 63.147,
-        "brightness_mean": 54.976,
+        "brightness_mean": 54.975,
         "brightness_std": 63.147,
         "exposure_score": 0.3791,
         "saturation_penalty": 0.9174,
@@ -202,10 +202,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9752.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9752_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9752_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9752_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9752.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9752_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9752_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9752_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0514,
@@ -224,10 +224,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9745.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9745_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9745_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9745_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9745.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9745_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9745_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9745_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.068,
@@ -246,10 +246,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9750.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9750_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9750_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9750_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9750.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9750_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9750_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9750_mask.png",
       "board_found": true,
       "detection_method": "approx_quad",
       "board_area_ratio": 0.0584,
@@ -268,10 +268,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9744.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9744_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9744_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9744_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9744.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9744_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9744_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9744_mask.png",
       "board_found": true,
       "detection_method": "approx_quad",
       "board_area_ratio": 0.0605,
@@ -290,10 +290,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9742.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9742_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9742_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9742_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9742.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9742_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9742_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9742_mask.png",
       "board_found": true,
       "detection_method": "approx_quad",
       "board_area_ratio": 0.0497,
@@ -312,10 +312,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9741.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9741_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9741_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9741_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9741.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9741_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9741_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9741_mask.png",
       "board_found": true,
       "detection_method": "approx_quad",
       "board_area_ratio": 0.0498,
@@ -334,10 +334,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9756.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9756_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9756_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9756_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9756.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9756_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9756_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9756_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.1446,
@@ -356,10 +356,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9747.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9747_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9747_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9747_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9747.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9747_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9747_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9747_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0765,
@@ -378,10 +378,10 @@
       }
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9743.JPG",
-      "warped": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9743_warped.png",
-      "preview": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/previews/IMG_9743_preview.png",
-      "mask": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/preparation_output/masks/IMG_9743_mask.png",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9743.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9743_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9743_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9743_mask.png",
       "board_found": true,
       "detection_method": "min_area_rect",
       "board_area_ratio": 0.0794,
@@ -402,15 +402,15 @@
   ],
   "failures": [
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9762.JPG",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9762.JPG",
       "reason": "board_not_found"
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9764.JPG",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9764.JPG",
       "reason": "board_not_found"
     },
     {
-      "source": "/home/emrahtek/Schreibtisch/CodeLab/Python_tutorial/Bildverarbeitung/pcb_template_tools/data/pcb_iphone_raw/IMG_9765.JPG",
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9765.JPG",
       "reason": "board_not_found"
     }
   ]

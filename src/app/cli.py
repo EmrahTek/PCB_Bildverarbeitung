@@ -7,7 +7,7 @@ from pathlib import Path
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse runtime CLI arguments."""
     parser = argparse.ArgumentParser(description="FireBeetle V4 PCB component detection")
-    parser.add_argument("--source", choices=["webcam", "ids", "video", "image", "images"], default="webcam")
+    parser.add_argument("--source", choices=["webcam", "ids", "picamera", "video", "image", "images"], default="webcam")
     parser.add_argument("--config", type=Path, default=Path("config/default.yaml"))
     parser.add_argument("--logging", type=Path, default=Path("config/logging.yaml"))
 

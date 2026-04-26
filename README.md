@@ -46,6 +46,20 @@ Kanonik yon kuralimiz:
 
 Raw telefon fotograflari portre veya yatay olabilir; onemli olan warp sonucunun bu kurala uymasi.
 
+Eger yeni clone/transfer sonrasi `warped` veya component template `.png` dosyalari eksikse, metadata ve template bankasini raw fotograflardan tekrar uret:
+
+```bash
+.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
+  --input-dir pcb_template_tools/data/pcb_iphone_raw \
+  --output-dir pcb_template_tools/data/preparation_output
+
+.venv/bin/python pcb_template_tools/tools/extract_templates.py \
+  --report pcb_template_tools/data/preparation_output/board_quality_report.json \
+  --top-k 3 \
+  --output-dir pcb_template_tools/data/generated_templates \
+  --roi-file pcb_template_tools/data/generated_templates/component_rois.json
+```
+
 ## GUI Hizli Komutlar
 
 Tek resim GUI:
@@ -81,6 +95,19 @@ Webcam GUI:
   --debug \
   --width 1280 \
   --height 720 \
+  --proc-resize-width 720
+```
+
+Raspberry Pi Camera GUI:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
   --proc-resize-width 720
 ```
 
@@ -227,6 +254,60 @@ Eger FPS cok dusukse:
 
 Eger board cok uzaktaysa veya kucuk gorunuyorsa kameraya biraz yaklastir. Yeni ayarlarda kucuk board icin `0.08` template scale destegi var, ama cok uzak ve bulanikhsa component ROI'leri dogru oturmaz.
 
+## Raspberry Pi Camera Testi
+
+Raspberry Pi 5 + Raspberry Pi AI Camera icin yeni kaynak `--source picamera` olarak eklendi. Bu kaynak Picamera2/libcamera uzerinden normal RGB frame alir ve mevcut klasik OpenCV detector pipeline'ina BGR frame olarak verir. Yani AI Camera bu projede once normal kamera gibi kullanilir; component detection mantigi degismez.
+
+Pi tarafinda Picamera2 genelde apt paketi olarak gelir. Sistem Python ile en sorunsuz baslangic:
+
+```bash
+sudo apt install python3-picamera2 python3-opencv python3-yaml
+cd /home/emrahtek/codelab/PCB_Bildverarbeitung
+PYTHONPATH=. /usr/bin/python3 main.py --list-video-devices
+```
+
+Once kamera acilisini ve ilk frame'i test et:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --camera-open-check \
+  --save-first-frame /tmp/picamera-first-frame.png \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30
+```
+
+Canli component detection:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 720
+```
+
+Pi uzerinde FPS dusukse:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 540
+```
+
+Eger terminalde `(.venv)` gorunuyorsa, `python3` komutu da venv icinden gelebilir ve apt ile gelen `picamera2` paketini gormez. Pi Camera icin en net komut `PYTHONPATH=. /usr/bin/python3 main.py ...` seklindedir. `.venv/bin/python` kullanmak istiyorsan, venv'in apt ile gelen `picamera2` paketini gorebilmesi gerekir; bunun icin venv'i Pi'de system-site-packages ile olustur.
+
 ## IDS Kamera Testi
 
 Desteklenen hedef kamera:
@@ -368,6 +449,7 @@ ls /dev/video*
 .venv/bin/python main.py --list-video-devices
 .venv/bin/python main.py --source webcam --camera-device 0 --camera-backend any --camera-open-check --debug
 .venv/bin/python main.py --source webcam --camera-device /dev/video0 --camera-backend v4l2 --camera-open-check --debug
+PYTHONPATH=. /usr/bin/python3 main.py --source picamera --camera-open-check --save-first-frame /tmp/picamera-first-frame.png --debug --width 1280 --height 720 --camera-fps 30
 .venv/bin/python main.py --source ids --camera-device /dev/video0 --camera-backend auto --camera-open-check --debug --disable-mjpg
 .venv/bin/python main.py --source ids --camera-device /dev/video0 --camera-backend auto --camera-open-check --save-first-frame /tmp/ids-first-frame.png --debug --disable-mjpg
 .venv/bin/python main.py --source ids --camera-device 0 --camera-backend pyueye --camera-open-check --debug
@@ -431,9 +513,10 @@ Live stabilization kaynak-bagimsizdir:
 
 Baslangic stratejisi:
 
+- Pi Camera icin `--source picamera` kullan.
 - `--proc-resize-width 540` veya `720` ile basla.
-- `source_profiles.webcam.board.verify_resize_width` degerini `160-220` araliginda tut.
-- `source_profiles.webcam.board.max_reference_templates` degerini `4-5` araliginda tut.
+- `source_profiles.picamera.board.verify_resize_width` degerini `160-220` araliginda tut.
+- `source_profiles.picamera.board.max_reference_templates` degerini `4-5` araliginda tut.
 - Kamera sabit ise board tracking daha stabil olur; elde tutulan board icin daha fazla isik ve daha az motion blur gerekir.
 
 GPU zorunlu degil. Bu pipeline OpenCV CPU uzerinde calisacak sekilde tasarlandi. Pi tarafinda asil kazanc, dogru resize, az referans, iyi isik ve sabit kamera/board mesafesinden gelir.
