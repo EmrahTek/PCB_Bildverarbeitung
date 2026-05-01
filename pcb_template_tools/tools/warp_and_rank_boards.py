@@ -337,12 +337,96 @@ def detect_board_quad(
                     best_aspect = aspect
 
     if best_quad is None:
+        best_quad, dark_mask, best_method, best_area_ratio, best_aspect = (
+            detect_dark_background_board_quad(image, expected_aspect)
+        )
+        if best_quad is not None:
+            return best_quad, dark_mask, best_method, best_area_ratio, best_aspect
         return None, mask, "none", 0.0, 0.0
 
     if scale != 1.0:
         best_quad = best_quad / scale
 
     return best_quad.astype(np.float32), mask, best_method, best_area_ratio, best_aspect
+
+
+def detect_dark_background_board_quad(
+    image: np.ndarray,
+    expected_aspect: float,
+) -> tuple[Optional[np.ndarray], Optional[np.ndarray], str, float, float]:
+    """
+    Detect the board in Pi-camera captures on a dark fixture/background.
+
+    The main detector is tuned for a PCB on white A4 paper. Pi-camera template
+    captures in this project use a dark holder, where the PCB and its light
+    edge/border form the largest bright object. This fallback only runs after
+    the white-paper path fails.
+    """
+    resized, scale = resize_for_detection(image)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+
+    otsu_threshold, mask = cv2.threshold(
+        gray,
+        0,
+        255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+    )
+    if otsu_threshold < 40:
+        return None, mask, "none", 0.0, 0.0
+
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (31, 31))
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open, iterations=1)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None, mask, "none", 0.0, 0.0
+
+    resized_area = float(resized.shape[0] * resized.shape[1])
+    best_quad = None
+    best_score = -math.inf
+    best_area_ratio = 0.0
+    best_aspect = 0.0
+
+    for cnt in sorted(contours, key=cv2.contourArea, reverse=True):
+        area = float(cv2.contourArea(cnt))
+        if area < 0.02 * resized_area:
+            continue
+
+        rect = cv2.minAreaRect(cnt)
+        box = cv2.boxPoints(rect).astype(np.float32)
+        valid, area_ratio, aspect = is_valid_quad(box, resized.shape, expected_aspect)
+        if not valid:
+            continue
+
+        aspect_penalty = abs(
+            math.log(
+                normalized_aspect(max(aspect, 1e-6)) /
+                normalized_aspect(expected_aspect)
+            )
+        )
+        fill_score = min(area_ratio / 0.18, 1.0)
+        score = fill_score * 100.0 - 10.0 * aspect_penalty
+        if score > best_score:
+            best_score = score
+            best_quad = box
+            best_area_ratio = area_ratio
+            best_aspect = aspect
+
+    if best_quad is None:
+        return None, mask, "none", 0.0, 0.0
+
+    if scale != 1.0:
+        best_quad = best_quad / scale
+
+    return (
+        best_quad.astype(np.float32),
+        mask,
+        "dark_bg_otsu_min_area_rect",
+        best_area_ratio,
+        best_aspect,
+    )
 
 
 # -----------------------------

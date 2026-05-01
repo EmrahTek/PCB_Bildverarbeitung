@@ -544,8 +544,10 @@ class BoardFirstDetector(Detector):
         window_visibility_score = self._roi_visibility_score(spec.label, crop)
         match_result = self._detect_component_in_roi(matcher, crop)
         detection = match_result.detection
+        low_score_candidate_used = False
         if detection is None and match_result.reason == "low_score":
             detection = match_result.candidate
+            low_score_candidate_used = detection is not None
         if detection is None:
             if spec.label in {"USB_PORT", "JST_CONNECTOR"}:
                 coverage = self._right_connector_coverage_score(localization.warped)
@@ -580,6 +582,8 @@ class BoardFirstDetector(Detector):
             search_bbox.x1 + detection.bbox.x2,
             search_bbox.y1 + detection.bbox.y2,
         )
+        if self._should_snap_connector_to_layout(spec, low_score_candidate_used):
+            canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
         local_visibility_score = self._candidate_visibility_score(spec, localization.warped, canonical_bbox)
         visibility_score = self._combine_visibility_score(spec.label, window_visibility_score, local_visibility_score)
         if visibility_score < min_visibility:
@@ -681,6 +685,14 @@ class BoardFirstDetector(Detector):
             canonical_bbox,
         )
         return _ComponentCandidate(canonical_bbox, score, visibility_score, match_result, mode)
+
+    @staticmethod
+    def _should_snap_connector_to_layout(spec: ComponentSpec, low_score_candidate_used: bool) -> bool:
+        return bool(
+            low_score_candidate_used
+            and spec.layout_roi is not None
+            and spec.label in {"USB_PORT", "JST_CONNECTOR"}
+        )
 
     def _persistent_component_candidate(
         self,

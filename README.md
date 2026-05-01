@@ -38,6 +38,14 @@ pcb_template_tools/data/generated_templates
 pcb_template_tools/data/generated_templates/templates_metadata.json
 ```
 
+`--source picamera` kullanildiginda config, iPhone bankasi yerine Pi kamera icin ayrilan bankayi okur:
+
+```text
+pcb_template_tools/data/preparation_output_pi/warped
+pcb_template_tools/data/generated_templates_pi
+pcb_template_tools/data/generated_templates_pi/templates_metadata.json
+```
+
 Kanonik yon kuralimiz:
 
 - board uzun kenar yatay
@@ -58,6 +66,25 @@ Eger yeni clone/transfer sonrasi `warped` veya component template `.png` dosyala
   --top-k 3 \
   --output-dir pcb_template_tools/data/generated_templates \
   --roi-file pcb_template_tools/data/generated_templates/component_rois.json
+```
+
+Pi kamera raw fotograflarindan Pi-specific bankayi tekrar uretmek icin:
+
+```bash
+.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
+  --input-dir pcb_template_tools/data/raw_pi \
+  --output-dir pcb_template_tools/data/preparation_output_pi
+
+.venv/bin/python pcb_template_tools/tools/extract_templates.py \
+  --report pcb_template_tools/data/preparation_output_pi/board_quality_report.json \
+  --top-k 4 \
+  --output-dir pcb_template_tools/data/generated_templates_pi
+```
+
+Ikinci komut ROI pencerelerini acar; sirayla `esp32`, `usb_port`, `jst_connector`, `reset_button` kutularini secip ENTER/SPACE ile onayla. Ayni ROI'leri tekrar kullanmak istersen son komuta sunu ekle:
+
+```bash
+  --roi-file pcb_template_tools/data/generated_templates_pi/component_rois.json
 ```
 
 ## GUI Hizli Komutlar
@@ -292,6 +319,8 @@ PYTHONPATH=. /usr/bin/python3 main.py \
   --camera-fps 30 \
   --proc-resize-width 720
 ```
+
+Bu komut `config/default.yaml` icindeki `source_profiles.picamera` ayarlari sayesinde Pi icin hazirlanan `preparation_output_pi` ve `generated_templates_pi` bankasini kullanir.
 
 Pi uzerinde FPS dusukse:
 

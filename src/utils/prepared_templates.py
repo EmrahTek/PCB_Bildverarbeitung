@@ -31,6 +31,8 @@ class PreparedTemplateBank:
 def _resolve_relative_path(root_dir: Path, raw_path: str) -> Path:
     path = Path(raw_path)
     if not path.is_absolute():
+        if path.parts and path.parts[0] == root_dir.name:
+            return root_dir / Path(*path.parts[1:])
         return root_dir / path
 
     # The preparation tools may have been run from a different clone path. Keep

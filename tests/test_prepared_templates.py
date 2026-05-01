@@ -96,3 +96,37 @@ def test_load_prepared_template_bank_supports_generated_records_metadata(tmp_pat
     assert round(y1f, 4) == 0.1870
     assert round(x2f, 4) == 0.9356
     assert round(y2f, 4) == 0.4848
+
+
+def test_load_prepared_template_bank_resolves_project_prefixed_relative_paths(tmp_path: Path) -> None:
+    root = tmp_path / "pcb_template_tools"
+    source_dir = root / "data" / "preparation_output_pi" / "warped"
+    template_dir = root / "data" / "generated_templates_pi" / "reset_button"
+    metadata_path = root / "data" / "generated_templates_pi" / "templates_metadata.json"
+
+    source_dir.mkdir(parents=True, exist_ok=True)
+    template_dir.mkdir(parents=True, exist_ok=True)
+
+    source_image = source_dir / "board.png"
+    template_image = template_dir / "reset_button_base.png"
+    cv.imwrite(str(source_image), np.zeros((460, 900, 3), dtype=np.uint8))
+    cv.imwrite(str(template_image), np.zeros((20, 20), dtype=np.uint8))
+
+    payload = {
+        "reference_image": "pcb_template_tools/data/preparation_output_pi/warped/board.png",
+        "records": [
+            {
+                "component": "reset_button",
+                "roi_xywh": [578, 138, 64, 91],
+                "files": [
+                    "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_base.png"
+                ],
+            }
+        ],
+    }
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    bank = load_prepared_template_bank(metadata_path, rotation_turns=0)
+
+    assert bank.source_image == source_image.resolve()
+    assert bank.component_dirs["RESET_BUTTON"] == template_dir.resolve()
