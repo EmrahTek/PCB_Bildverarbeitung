@@ -68,11 +68,14 @@ def _draw_label_box(
     bg = _pick_color_for_frame(image, background_bgr, 255)
     fg = _text_color_for_bgr(image, background_bgr)
     (text_w, text_h), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
+    label_h = text_h + baseline + 8
+    label_w = text_w + 8
 
-    x1 = max(0, x)
-    y2 = max(text_h + baseline + 8, y)
-    y1 = max(0, y2 - text_h - baseline - 8)
-    x2 = min(image.shape[1], x1 + text_w + 8)
+    max_x1 = max(0, image.shape[1] - label_w)
+    x1 = min(max(0, x), max_x1)
+    y2 = min(image.shape[0] - 1, max(label_h, y))
+    y1 = max(0, y2 - label_h)
+    x2 = min(image.shape[1], x1 + label_w)
 
     cv.rectangle(image, (x1, y1), (x2, y2), bg, thickness=-1)
     cv.putText(
@@ -124,7 +127,11 @@ def draw_detections(
         text = _SHORT_LABELS.get(detection.label, detection.label)
         if debug and cfg.draw_scores:
             text = f"{text} {detection.score:.2f}"
-        _draw_label_box(vis, x1, max(0, y1 - 2), text, color, cfg)
+        label_y = max(0, y1 - 2)
+        if detection.label == "JST_CONNECTOR":
+            (_text_w, text_h), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
+            label_y = y2 + text_h + baseline + 8
+        _draw_label_box(vis, x1, label_y, text, color, cfg)
 
     if cfg.show_counts:
         counts = count_by_label(detections_list)

@@ -38,6 +38,11 @@ class BoardWarpConfig:
     min_canonical_structure_score: float = 0.0
     min_edge_grid_score: float = 0.0
     min_tightness_score: float = 0.35
+    refine_pad_x_ratio: float = 0.035
+    refine_pad_y_ratio: float = 0.045
+    refine_pad_right_ratio: float = 0.045
+    refine_pad_right_connector_ratio: float = 0.078
+    refine_connector_score_threshold: float = 0.26
     max_skin_ratio: float = 0.18
     verify_gray_weight: float = 0.65
     verify_edge_weight: float = 0.35
@@ -1165,9 +1170,14 @@ class BoardLocalizer:
             return warped, homography, quad, tightness
 
         connector_score = self._right_connector_preservation_score(warped)
-        pad_x = int(round(0.035 * bw))
-        pad_right = int(round((0.078 if connector_score >= 0.26 else 0.045) * bw))
-        pad_y = int(round(0.045 * bh))
+        right_pad_ratio = (
+            self._cfg.refine_pad_right_connector_ratio
+            if connector_score >= self._cfg.refine_connector_score_threshold
+            else self._cfg.refine_pad_right_ratio
+        )
+        pad_x = int(round(max(0.0, self._cfg.refine_pad_x_ratio) * bw))
+        pad_right = int(round(max(0.0, right_pad_ratio) * bw))
+        pad_y = int(round(max(0.0, self._cfg.refine_pad_y_ratio) * bh))
         x1 = max(0, x - pad_x)
         y1 = max(0, y - pad_y)
         x2 = min(w - 1, x + bw + pad_right)

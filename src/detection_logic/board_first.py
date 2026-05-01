@@ -582,7 +582,7 @@ class BoardFirstDetector(Detector):
             search_bbox.x1 + detection.bbox.x2,
             search_bbox.y1 + detection.bbox.y2,
         )
-        if self._should_snap_connector_to_layout(spec, low_score_candidate_used):
+        if self._should_snap_connector_to_layout(spec, match_result, low_score_candidate_used):
             canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
         local_visibility_score = self._candidate_visibility_score(spec, localization.warped, canonical_bbox)
         visibility_score = self._combine_visibility_score(spec.label, window_visibility_score, local_visibility_score)
@@ -687,12 +687,19 @@ class BoardFirstDetector(Detector):
         return _ComponentCandidate(canonical_bbox, score, visibility_score, match_result, mode)
 
     @staticmethod
-    def _should_snap_connector_to_layout(spec: ComponentSpec, low_score_candidate_used: bool) -> bool:
-        return bool(
-            low_score_candidate_used
-            and spec.layout_roi is not None
-            and spec.label in {"USB_PORT", "JST_CONNECTOR"}
-        )
+    def _should_snap_connector_to_layout(
+        spec: ComponentSpec,
+        match_result: TemplateMatchResult,
+        low_score_candidate_used: bool,
+    ) -> bool:
+        if spec.layout_roi is None or spec.label not in {"USB_PORT", "JST_CONNECTOR"}:
+            return False
+        if low_score_candidate_used:
+            return True
+        if match_result.best_score < 0.0:
+            return False
+        weak_match_threshold = max(0.14, spec.layout_fallback_min_match_score + 0.04)
+        return match_result.best_score < weak_match_threshold
 
     def _persistent_component_candidate(
         self,

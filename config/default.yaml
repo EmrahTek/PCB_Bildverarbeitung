@@ -295,6 +295,9 @@ source_profiles:
       min_canonical_structure_score: 0.10
       min_edge_grid_score: 0.10
       min_tightness_score: 0.40
+      refine_pad_right_ratio: 0.075
+      refine_pad_right_connector_ratio: 0.115
+      refine_connector_score_threshold: 0.18
       max_skin_ratio: 0.14
       verify_resize_width: 180
       min_objectness_score: 0.38
@@ -389,39 +392,39 @@ source_profiles:
       reuse_min_warp_quality: 0.52
     components:
       ESP32:
-        score_threshold: 0.46
+        score_threshold: 0.42
         min_board_area_ratio: 0.0250
         warp_quality_weight: 0.045
-        keep_score_threshold: 0.34
-        track_max_missing: 3
-        persistence_decay: 0.94
+        keep_score_threshold: 0.30
+        track_max_missing: 5
+        persistence_decay: 0.96
         layout_fallback_min_board_score: 0.50
         layout_fallback_min_warp_quality: 0.48
-        layout_fallback_min_match_score: 0.10
+        layout_fallback_min_match_score: 0.06
         layout_fallback_min_visibility_score: 0.14
         scales: [0.85, 0.95, 1.00, 1.05, 1.15]
       USB_PORT:
         score_threshold: 0.46
         min_board_area_ratio: 0.0030
         warp_quality_weight: 0.045
-        keep_score_threshold: 0.34
-        track_max_missing: 4
-        persistence_decay: 0.94
+        keep_score_threshold: 0.32
+        track_max_missing: 5
+        persistence_decay: 0.96
         layout_fallback_min_board_score: 0.50
         layout_fallback_min_warp_quality: 0.48
-        layout_fallback_min_match_score: 0.10
+        layout_fallback_min_match_score: 0.07
         layout_fallback_min_visibility_score: 0.14
         scales: [0.90, 1.00, 1.10]
       JST_CONNECTOR:
-        score_threshold: 0.48
+        score_threshold: 0.46
         min_board_area_ratio: 0.0050
         warp_quality_weight: 0.025
-        keep_score_threshold: 0.34
-        track_max_missing: 4
-        persistence_decay: 0.94
-        layout_fallback_min_board_score: 0.62
-        layout_fallback_min_warp_quality: 0.52
-        layout_fallback_min_match_score: 0.10
+        keep_score_threshold: 0.32
+        track_max_missing: 5
+        persistence_decay: 0.96
+        layout_fallback_min_board_score: 0.58
+        layout_fallback_min_warp_quality: 0.50
+        layout_fallback_min_match_score: 0.07
         layout_fallback_min_visibility_score: 0.22
         scales: [0.90, 1.00, 1.10]
       RESET_BUTTON:
