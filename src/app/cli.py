@@ -54,12 +54,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--proc-resize-width", type=int, default=None)
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument(
-        "--detect-every",
-        type=int,
-        default=1,
-        help="Run the heavy detector every N processed frames and reuse the last boxes in between.",
-    )
     parser.add_argument("--max-frames", type=int, default=None)
     parser.add_argument("--wait-ms", type=int, default=1)
     return parser.parse_args(argv)

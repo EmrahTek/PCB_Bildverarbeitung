@@ -536,7 +536,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
 
 def main() -> None:
     args = parse_args()
-    setup_logging(args.logging, debug=args.debug)
+    setup_logging(args.logging)
     if args.list_video_devices:
         _print_video_devices()
         return
@@ -585,7 +585,6 @@ def main() -> None:
         cfg=PipelineConfig(
             window_name=str(runtime_cfg.get("window_name", "PCB Component Detection")),
             exit_key=str(runtime_cfg.get("exit_key", "q")),
-            detect_every=max(1, int(args.detect_every)),
         ),
     )
     try:

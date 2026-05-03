@@ -44,7 +44,7 @@ import logging.config
 from pathlib import Path
 from typing import Any, Dict
 
-def setup_logging(logging_config_path: str | Path, *, default_level: int = logging.INFO, debug: bool = False):
+def setup_logging(logging_config_path: str | Path, *, default_level: int = logging.INFO):
     """
     Setup logging from a YAML file (dictConfig), with a safe fallback.
 
@@ -61,8 +61,6 @@ def setup_logging(logging_config_path: str | Path, *, default_level: int = loggi
     try: 
         config = _load_yaml(path)
         _ensure_log_dirs(config)
-        if not debug:
-            _raise_debug_levels_to_info(config)
         logging.config.dictConfig(config)
         logging.getLogger(__name__).info("Logging configured from %s", path)
     except Exception as exc:
@@ -102,22 +100,3 @@ def _ensure_log_dirs(config:Dict[str,Any]) -> None:
         if isinstance(h,dict) and "filename" in h:
             filename = Path(str(h["filename"]))
             filename.parent.mkdir(parents=True, exist_ok=True)
-
-
-def _raise_debug_levels_to_info(config: Dict[str, Any]) -> None:
-    """Avoid expensive per-frame DEBUG logging unless the CLI debug flag is used."""
-    for section_name in ("root", "loggers"):
-        section = config.get(section_name)
-        if isinstance(section, dict):
-            if str(section.get("level", "")).upper() == "DEBUG":
-                section["level"] = "INFO"
-            if section_name == "loggers":
-                for logger_cfg in section.values():
-                    if isinstance(logger_cfg, dict) and str(logger_cfg.get("level", "")).upper() == "DEBUG":
-                        logger_cfg["level"] = "INFO"
-
-    handlers = config.get("handlers", {})
-    if isinstance(handlers, dict):
-        for handler_cfg in handlers.values():
-            if isinstance(handler_cfg, dict) and str(handler_cfg.get("level", "")).upper() == "DEBUG":
-                handler_cfg["level"] = "INFO"

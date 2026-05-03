@@ -94,11 +94,10 @@ def draw_detections(
     frame: np.ndarray,
     detections: Iterable[Detection],
     *,
-    fps: float | None = None,
     debug: bool = False,
     cfg: OverlayConfig = OverlayConfig(),
 ) -> np.ndarray:
-    """Draw detections, counts, and optional FPS text on top of the frame."""
+    """Draw detections and counts on top of the frame."""
     vis = frame.copy()
     detections_list = list(detections)
 
@@ -132,10 +131,5 @@ def draw_detections(
             _draw_label_box(vis, cfg.panel_x, row_y, text, color, cfg)
             (text_w, text_h), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
             row_y += text_h + baseline + cfg.panel_row_gap + 8
-
-    if fps is not None:
-        text = f"FPS {fps:4.1f}"
-        (text_w, _text_h), _baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
-        _draw_label_box(vis, vis.shape[1] - text_w - 20, 24, text, (40, 40, 40), cfg)
 
     return vis

@@ -132,22 +132,12 @@ PYTHONPATH=. /usr/bin/python3 main.py \
   --proc-resize-width 720
 ```
 
-FPS dusukse islem genisligini azalt:
+`--debug`, kutularin uzerinde skor/oran yazilarini gosterir ve detay log uretir.
+Bu proje icin en stabil Pi camera modu budur; kalibrasyon ve kontrol yaparken
+bu komutla calistir.
 
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 540
-```
-
-Maksimum stabilite icin `--debug` acik ve `--proc-resize-width 720` iyi
-baslangictir; skorlar ekranda gorunur ama FPS daha dusuk olur. Detection ayni
-kalsin, sadece runtime biraz hizlansin istersen `--debug` bayragini kaldir:
+Skor yazilari gerekmediginde `--debug` kaldirilabilir. Detection ayarlari ayni
+kalir, sadece ekrandaki skor/oran yazilari gizlenir:
 
 ```bash
 PYTHONPATH=. /usr/bin/python3 main.py \
@@ -159,20 +149,9 @@ PYTHONPATH=. /usr/bin/python3 main.py \
   --proc-resize-width 720
 ```
 
-Daha akici ekran icin agir detection'i her 2 karede bir calistirip ara karelerde
-son kutulari tekrar kullanabilirsin. Kamera ve board sabitse bu genelde
-detection'i bozmaz; board hizli hareket ederse kutular biraz gec takip eder:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 540 \
-  --detect-every 2
-```
+Not: `--proc-resize-width 720` Pi camera icin secilen stabil ayardir. Daha dusuk
+degerler FPS'i artirabilir ama RESET_BUTTON gibi kucuk komponentlerde kutu
+hassasiyetini bozabilir.
 
 GUI penceresinde cikmak icin `q` tusuna bas.
 
@@ -466,7 +445,8 @@ Detection titriyorsa:
 - Daha sabit isik kullan.
 - Board'u frame icinde orta-buyuk tut.
 - Kamera ile board arasindaki mesafeyi sabit tut.
-- `--proc-resize-width 720` ile basla; FPS dusukse `540` dene.
+- Pi camera icin `--proc-resize-width 720` kullan; daha dusuk degerler kucuk
+  RESET_BUTTON kutusunu bozabilir.
 - Pi camera icin yeni raw fotograflar cekip `generated_templates_pi` bankasini yenile.
 
 ## Gelistirici Kontrol Komutlari
