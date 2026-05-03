@@ -374,6 +374,11 @@ source_profiles:
       min_canonical_structure_score: 0.10
       min_edge_grid_score: 0.10
       min_tightness_score: 0.40
+      refine_pad_x_ratio: 0.055
+      refine_pad_y_ratio: 0.055
+      refine_pad_right_ratio: 0.095
+      refine_pad_right_connector_ratio: 0.135
+      refine_connector_score_threshold: 0.16
       max_skin_ratio: 0.14
       verify_resize_width: 180
       min_objectness_score: 0.38
@@ -390,41 +395,59 @@ source_profiles:
       temporal_min_hits: 2
       max_pose_reuse_frames: 2
       reuse_min_warp_quality: 0.52
+      board_bbox_pad_right: 0.040
     components:
       ESP32:
         score_threshold: 0.42
+        layout_anchor: true
+        layout_fallback_score: 0.64
         min_board_area_ratio: 0.0250
+        min_board_overlap_ratio: 0.82
         warp_quality_weight: 0.045
-        keep_score_threshold: 0.30
+        search_roi_expansion: 0.18
+        layout_roi_expansion: 0.05
+        keep_score_threshold: 0.24
         track_max_missing: 5
-        persistence_decay: 0.96
+        persistence_decay: 0.985
         layout_fallback_min_board_score: 0.50
         layout_fallback_min_warp_quality: 0.48
-        layout_fallback_min_match_score: 0.06
+        layout_fallback_min_match_score: 0.04
         layout_fallback_min_visibility_score: 0.14
         scales: [0.85, 0.95, 1.00, 1.05, 1.15]
       USB_PORT:
         score_threshold: 0.46
+        layout_anchor: true
+        layout_fallback_score: 0.66
         min_board_area_ratio: 0.0030
+        min_board_overlap_ratio: 0.68
         warp_quality_weight: 0.045
+        search_roi_expansion: 0.35
+        layout_roi_left_trim: 0.12
+        output_bbox_pad_right: 0.16
         keep_score_threshold: 0.32
         track_max_missing: 5
-        persistence_decay: 0.96
+        persistence_decay: 0.975
         layout_fallback_min_board_score: 0.50
         layout_fallback_min_warp_quality: 0.48
-        layout_fallback_min_match_score: 0.07
+        layout_fallback_min_match_score: 0.04
         layout_fallback_min_visibility_score: 0.14
         scales: [0.90, 1.00, 1.10]
       JST_CONNECTOR:
         score_threshold: 0.46
+        layout_anchor: true
+        layout_fallback_score: 0.62
         min_board_area_ratio: 0.0050
+        min_board_overlap_ratio: 0.65
         warp_quality_weight: 0.025
+        search_roi_expansion: 0.35
+        layout_roi_left_trim: 0.14
+        output_bbox_pad_right: 0.18
         keep_score_threshold: 0.32
         track_max_missing: 5
-        persistence_decay: 0.96
-        layout_fallback_min_board_score: 0.58
+        persistence_decay: 0.975
+        layout_fallback_min_board_score: 0.54
         layout_fallback_min_warp_quality: 0.50
-        layout_fallback_min_match_score: 0.07
+        layout_fallback_min_match_score: 0.04
         layout_fallback_min_visibility_score: 0.22
         scales: [0.90, 1.00, 1.10]
       RESET_BUTTON:

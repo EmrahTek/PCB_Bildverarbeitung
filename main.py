@@ -141,6 +141,53 @@ def _tuple_floats(values: list[float]) -> tuple[float, ...]:
     return tuple(float(value) for value in values)
 
 
+def _expand_relative_roi_values(
+    values: tuple[float, float, float, float],
+    expansion: float,
+) -> tuple[float, float, float, float]:
+    """Expand an ROI around its center while keeping it inside canonical bounds."""
+    x1, y1, x2, y2 = (float(value) for value in values)
+    amount = max(0.0, float(expansion))
+    if amount <= 0.0:
+        return x1, y1, x2, y2
+    dx = (x2 - x1) * amount
+    dy = (y2 - y1) * amount
+    return (
+        max(0.0, x1 - dx),
+        max(0.0, y1 - dy),
+        min(1.0, x2 + dx),
+        min(1.0, y2 + dy),
+    )
+
+
+def _trim_relative_roi_values(
+    values: tuple[float, float, float, float],
+    *,
+    left: float = 0.0,
+    right: float = 0.0,
+    top: float = 0.0,
+    bottom: float = 0.0,
+) -> tuple[float, float, float, float]:
+    """Trim ROI edges by fractions of the ROI size while preserving valid bounds."""
+    x1, y1, x2, y2 = (float(value) for value in values)
+    width = max(0.0, x2 - x1)
+    height = max(0.0, y2 - y1)
+    nx1 = x1 + width * max(0.0, float(left))
+    nx2 = x2 - width * max(0.0, float(right))
+    ny1 = y1 + height * max(0.0, float(top))
+    ny2 = y2 - height * max(0.0, float(bottom))
+    if nx2 <= nx1:
+        nx1, nx2 = x1, x2
+    if ny2 <= ny1:
+        ny1, ny2 = y1, y2
+    return (
+        max(0.0, min(1.0, nx1)),
+        max(0.0, min(1.0, ny1)),
+        max(0.0, min(1.0, nx2)),
+        max(0.0, min(1.0, ny2)),
+    )
+
+
 def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge config overrides without mutating the input objects."""
     merged = deepcopy(base)
@@ -287,9 +334,23 @@ def _component_specs_and_matchers(
             if prepared_bank is not None and use_prepared_rois
             else tuple(component_cfg["roi"])
         )
+        roi = _expand_relative_roi_values(
+            tuple(float(value) for value in roi),
+            float(component_cfg.get("search_roi_expansion", 0.0)),
+        )
         layout_roi = None
         if prepared_bank is not None and label in prepared_bank.component_rois:
-            layout_roi_values = prepared_bank.component_rois[label]
+            layout_roi_values = _expand_relative_roi_values(
+                prepared_bank.component_rois[label],
+                float(component_cfg.get("layout_roi_expansion", 0.0)),
+            )
+            layout_roi_values = _trim_relative_roi_values(
+                layout_roi_values,
+                left=float(component_cfg.get("layout_roi_left_trim", 0.0)),
+                right=float(component_cfg.get("layout_roi_right_trim", 0.0)),
+                top=float(component_cfg.get("layout_roi_top_trim", 0.0)),
+                bottom=float(component_cfg.get("layout_roi_bottom_trim", 0.0)),
+            )
             layout_roi = RelativeROI(
                 float(layout_roi_values[0]),
                 float(layout_roi_values[1]),
@@ -297,7 +358,17 @@ def _component_specs_and_matchers(
                 float(layout_roi_values[3]),
             )
         elif "layout_roi" in component_cfg:
-            layout_roi_values = tuple(component_cfg["layout_roi"])
+            layout_roi_values = _expand_relative_roi_values(
+                tuple(component_cfg["layout_roi"]),
+                float(component_cfg.get("layout_roi_expansion", 0.0)),
+            )
+            layout_roi_values = _trim_relative_roi_values(
+                layout_roi_values,
+                left=float(component_cfg.get("layout_roi_left_trim", 0.0)),
+                right=float(component_cfg.get("layout_roi_right_trim", 0.0)),
+                top=float(component_cfg.get("layout_roi_top_trim", 0.0)),
+                bottom=float(component_cfg.get("layout_roi_bottom_trim", 0.0)),
+            )
             layout_roi = RelativeROI(
                 float(layout_roi_values[0]),
                 float(layout_roi_values[1]),
@@ -334,6 +405,11 @@ def _component_specs_and_matchers(
                 min_position_prior_keep=float(component_cfg.get("min_position_prior_keep", 0.0)),
                 persistence_decay=float(component_cfg.get("persistence_decay", 0.88)),
                 visibility_upscale=float(component_cfg.get("visibility_upscale", 1.0)),
+                layout_anchor=bool(component_cfg.get("layout_anchor", False)),
+                output_bbox_pad_left=float(component_cfg.get("output_bbox_pad_left", 0.0)),
+                output_bbox_pad_right=float(component_cfg.get("output_bbox_pad_right", 0.0)),
+                output_bbox_pad_top=float(component_cfg.get("output_bbox_pad_top", 0.0)),
+                output_bbox_pad_bottom=float(component_cfg.get("output_bbox_pad_bottom", 0.0)),
             )
         )
         matchers[label] = matcher
@@ -450,13 +526,17 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
             board_pose_max_tightness_drop=float(tracking_cfg.get("board_pose_max_tightness_drop", 0.20)),
             board_pose_quality_margin=float(tracking_cfg.get("board_pose_quality_margin", 0.05)),
             board_pose_reuse_decay=float(tracking_cfg.get("board_pose_reuse_decay", 0.98)),
+            board_bbox_pad_left=float(tracking_cfg.get("board_bbox_pad_left", 0.0)),
+            board_bbox_pad_right=float(tracking_cfg.get("board_bbox_pad_right", 0.0)),
+            board_bbox_pad_top=float(tracking_cfg.get("board_bbox_pad_top", 0.0)),
+            board_bbox_pad_bottom=float(tracking_cfg.get("board_bbox_pad_bottom", 0.0)),
         ),
     )
 
 
 def main() -> None:
     args = parse_args()
-    setup_logging(args.logging)
+    setup_logging(args.logging, debug=args.debug)
     if args.list_video_devices:
         _print_video_devices()
         return
@@ -505,6 +585,7 @@ def main() -> None:
         cfg=PipelineConfig(
             window_name=str(runtime_cfg.get("window_name", "PCB Component Detection")),
             exit_key=str(runtime_cfg.get("exit_key", "q")),
+            detect_every=max(1, int(args.detect_every)),
         ),
     )
     try:

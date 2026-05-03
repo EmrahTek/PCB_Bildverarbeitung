@@ -36,6 +36,7 @@ class IdentityPreprocessor:
 class PipelineConfig:
     window_name: str = "PCB Component Detection"
     exit_key: str = "q"
+    detect_every: int = 1
 
 
 class Pipeline:
@@ -52,6 +53,8 @@ class Pipeline:
         self._preprocessor = preprocessor if preprocessor is not None else IdentityPreprocessor()
         self._cfg = cfg
         self._fps = FPSCounter(window_size=30)
+        if self._cfg.detect_every < 1:
+            raise ValueError("detect_every must be at least 1")
 
     def run(
         self,
@@ -67,9 +70,16 @@ class Pipeline:
             cv.namedWindow(self._cfg.window_name, cv.WINDOW_NORMAL)
             cv.resizeWindow(self._cfg.window_name, 960, 540)
 
-        LOGGER.info("Pipeline started: headless=%s debug=%s max_frames=%s", headless, debug, max_frames)
+        LOGGER.info(
+            "Pipeline started: headless=%s debug=%s max_frames=%s detect_every=%d",
+            headless,
+            debug,
+            max_frames,
+            self._cfg.detect_every,
+        )
 
         frame_count = 0
+        last_detections: list[Detection] | None = None
         try:
             while True:
                 frame, meta = source.read()
@@ -78,7 +88,12 @@ class Pipeline:
                     break
 
                 processed = self._preprocessor.process(frame)
-                detections = self._detector.detect(processed)
+                should_detect = last_detections is None or frame_count % self._cfg.detect_every == 0
+                if should_detect:
+                    detections = self._detector.detect(processed)
+                    last_detections = detections
+                else:
+                    detections = last_detections
                 fps = self._fps.tick()
 
                 if debug and (meta.frame_id % 15 == 0 or meta.source.startswith("image:") or meta.source.startswith("images:")):

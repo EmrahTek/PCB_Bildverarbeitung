@@ -102,19 +102,6 @@ def draw_detections(
     vis = frame.copy()
     detections_list = list(detections)
 
-    if fps is not None:
-        fps_color = _pick_color_for_frame(vis, (255, 255, 255))
-        cv.putText(
-            vis,
-            f"FPS {fps:5.1f}",
-            (10, 20),
-            cfg.font,
-            0.5,
-            fps_color,
-            1,
-            cv.LINE_AA,
-        )
-
     for detection in detections_list:
         color = _LABEL_COLORS.get(detection.label, (0, 255, 0))
         draw_color = _pick_color_for_frame(vis, color)
@@ -145,5 +132,10 @@ def draw_detections(
             _draw_label_box(vis, cfg.panel_x, row_y, text, color, cfg)
             (text_w, text_h), baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
             row_y += text_h + baseline + cfg.panel_row_gap + 8
+
+    if fps is not None:
+        text = f"FPS {fps:4.1f}"
+        (text_w, _text_h), _baseline = cv.getTextSize(text, cfg.font, cfg.font_scale, cfg.font_thickness)
+        _draw_label_box(vis, vis.shape[1] - text_w - 20, 24, text, (40, 40, 40), cfg)
 
     return vis

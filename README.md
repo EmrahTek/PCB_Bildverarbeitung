@@ -1,6 +1,9 @@
-# PCB Bauteilerkennung
+# PCB Component Detection
 
-Python + OpenCV ile FireBeetle/ESP32 tabanli PCB uzerinde su parcalari tespit eder:
+Bu proje, FireBeetle / ESP32 tabanli bir PCB uzerindeki ana parcalari klasik
+goruntu isleme ile tespit eder.
+
+Tespit edilen etiketler:
 
 - `BOARD`
 - `ESP32`
@@ -8,86 +11,172 @@ Python + OpenCV ile FireBeetle/ESP32 tabanli PCB uzerinde su parcalari tespit ed
 - `JST_CONNECTOR`
 - `RESET_BUTTON`
 
-Proje klasik goruntu isleme icin tasarlandi ve Raspberry Pi 5 / Pi AI Camera tarafina tasinabilecek sekilde hafif tutuldu. Ana yaklasim hybrid:
+Ana kullanim hedefi Raspberry Pi 5 + Sony/Pi camera ile canli goruntude
+stabil component detection calistirmaktir. iPhone ile hazirlanmis eski template
+bankasi korunur; Pi camera icin ayri template bankasi kullanilir.
 
-- Once PCB bulunur ve kanonik `900 x 460` board gorunumune warp edilir.
-- Board dogrulama, hiz icin kucultulmus verify kopyasinda yapilir.
-- Kucuk component'ler ROI icinde class-specific preprocessing, template/edge matching ve local visibility skoru ile aranir.
-- Template skoru dusuk ama board/warp/ROI kaniti guvenilir ise class-specific layout ROI fallback'i kullanilir.
-- Live modlarda board pozu/homography stabilize edilir; `BOARD` kutusu generic bbox averaging'den gecmez.
-- Component'ler kanonik board uzayinda `ACQUIRE -> LOCKED -> LOCAL_SEARCH -> FULL_SEARCH/LOST` mantigiyle kilitlenir ve acquire/keep hysteresis ile flicker azaltilir.
+## Kisa Ozet
 
-Detector mantigi kamera markasina bagli degildir. Ayni klasik-CV akisi image, video, webcam, IDS ve ileride Raspberry Pi 5 + Pi AI Camera icin kullanilacak sekilde tasarlanmistir.
+Pipeline su sekilde calisir:
+
+1. Kamera veya resimden frame alinir.
+2. Once buyuk PCB board bulunur.
+3. Board `900 x 460` kanonik gorunume warp edilir.
+4. Component'ler board uzerindeki beklenen ROI alanlarinda aranir.
+5. Canli goruntude board pozu ve component kutulari takip edilerek flicker azaltilir.
+6. Sonuc OpenCV GUI uzerine renkli kutularla cizilir.
+
+Kanonik board yonu her zaman aynidir:
+
+- ESP32 / metal modul solda
+- USB-C ve JST sagda
+- board uzun kenari yatay
+
+## Proje Klasorleri
+
+```text
+config/default.yaml                         Ana detector ve source ayarlari
+main.py                                     Uygulama giris noktasi
+src/                                       Kamera, pipeline, detection ve render kodu
+tests/                                     Unit/smoke testler
+logs/app.log                               Runtime log dosyasi
+pcb_template_tools/tools/warp_and_rank_boards.py
+pcb_template_tools/tools/extract_templates.py
+pcb_template_tools/data/pcb_iphone_raw     iPhone raw fotograflari
+pcb_template_tools/data/raw_pi             Pi camera raw fotograflari
+pcb_template_tools/data/preparation_output iPhone warp/mask/preview ciktilari
+pcb_template_tools/data/preparation_output_pi
+pcb_template_tools/data/generated_templates
+pcb_template_tools/data/generated_templates_pi
+```
+
+Template ayrimi:
+
+- Default/image/webcam/video/IDS profilinde iPhone bankasi kullanilir:
+  `pcb_template_tools/data/generated_templates`
+- `--source picamera` profilinde Pi bankasi kullanilir:
+  `pcb_template_tools/data/generated_templates_pi`
+
+Bu ayrim `config/default.yaml` icindeki `source_profiles.picamera` bolumunden
+gelir.
 
 ## Kurulum
 
-```bash
-cd /home/emrahtek/Schreibtisch/CodeLab/PCB_Bauteilerkennung
-PYTHONPATH=. .venv/bin/python -m pytest -q
-```
-
-Bu projede sisteminde `python` komutu olmayabilir; bu yuzden komutlarda `.venv/bin/python` kullanmak daha guvenli.
-
-## Template Veri Seti
-
-Aktif template bankasi `pcb_template_tools` altindan okunur:
-
-```text
-pcb_template_tools/data/preparation_output/warped
-pcb_template_tools/data/generated_templates
-pcb_template_tools/data/generated_templates/templates_metadata.json
-```
-
-`--source picamera` kullanildiginda config, iPhone bankasi yerine Pi kamera icin ayrilan bankayi okur:
-
-```text
-pcb_template_tools/data/preparation_output_pi/warped
-pcb_template_tools/data/generated_templates_pi
-pcb_template_tools/data/generated_templates_pi/templates_metadata.json
-```
-
-Kanonik yon kuralimiz:
-
-- board uzun kenar yatay
-- ESP32 / metal modul solda
-- USB-C ve JST sagda
-
-Raw telefon fotograflari portre veya yatay olabilir; onemli olan warp sonucunun bu kurala uymasi.
-
-Eger yeni clone/transfer sonrasi `warped` veya component template `.png` dosyalari eksikse, metadata ve template bankasini raw fotograflardan tekrar uret:
+Bu makinedeki proje yolu:
 
 ```bash
-.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
-  --input-dir pcb_template_tools/data/pcb_iphone_raw \
-  --output-dir pcb_template_tools/data/preparation_output
-
-.venv/bin/python pcb_template_tools/tools/extract_templates.py \
-  --report pcb_template_tools/data/preparation_output/board_quality_report.json \
-  --top-k 3 \
-  --output-dir pcb_template_tools/data/generated_templates \
-  --roi-file pcb_template_tools/data/generated_templates/component_rois.json
+cd /home/emrahtek/codelab/PCB_Bildverarbeitung
 ```
 
-Pi kamera raw fotograflarindan Pi-specific bankayi tekrar uretmek icin:
+Normal Linux/PC ortami icin sanal ortam:
 
 ```bash
-.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
-  --input-dir pcb_template_tools/data/raw_pi \
-  --output-dir pcb_template_tools/data/preparation_output_pi
-
-.venv/bin/python pcb_template_tools/tools/extract_templates.py \
-  --report pcb_template_tools/data/preparation_output_pi/board_quality_report.json \
-  --top-k 4 \
-  --output-dir pcb_template_tools/data/generated_templates_pi
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-Ikinci komut ROI pencerelerini acar; sirayla `esp32`, `usb_port`, `jst_connector`, `reset_button` kutularini secip ENTER/SPACE ile onayla. Ayni ROI'leri tekrar kullanmak istersen son komuta sunu ekle:
+Kodun import edilebilir oldugunu hizli kontrol:
 
 ```bash
-  --roi-file pcb_template_tools/data/generated_templates_pi/component_rois.json
+.venv/bin/python -m compileall main.py src tests
 ```
 
-## GUI Hizli Komutlar
+Testler icin:
+
+```bash
+.venv/bin/python -m pytest -q
+```
+
+Not: Raspberry Pi tarafinda `picamera2` apt paketi olarak geldiginden Pi camera
+komutlarinda genellikle `.venv/bin/python` yerine `/usr/bin/python3` kullanmak
+daha sorunsuzdur.
+
+## Raspberry Pi Camera Canli Calistirma
+
+Pi tarafinda gerekli apt paketleri:
+
+```bash
+sudo apt update
+sudo apt install python3-picamera2 python3-opencv python3-yaml
+```
+
+Kamerayi ve ilk frame'i test et:
+
+```bash
+cd /home/emrahtek/codelab/PCB_Bildverarbeitung
+
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --camera-open-check \
+  --save-first-frame /tmp/picamera-first-frame.png \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30
+```
+
+Canli Pi camera detection icin ana komut:
+
+```bash
+cd /home/emrahtek/codelab/PCB_Bildverarbeitung
+
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 720
+```
+
+FPS dusukse islem genisligini azalt:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 540
+```
+
+Maksimum stabilite icin `--debug` acik ve `--proc-resize-width 720` iyi
+baslangictir; skorlar ekranda gorunur ama FPS daha dusuk olur. Detection ayni
+kalsin, sadece runtime biraz hizlansin istersen `--debug` bayragini kaldir:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 720
+```
+
+Daha akici ekran icin agir detection'i her 2 karede bir calistirip ara karelerde
+son kutulari tekrar kullanabilirsin. Kamera ve board sabitse bu genelde
+detection'i bozmaz; board hizli hareket ederse kutular biraz gec takip eder:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 540 \
+  --detect-every 2
+```
+
+GUI penceresinde cikmak icin `q` tusuna bas.
+
+## Tek Resim, Klasor ve Video Komutlari
 
 Tek resim GUI:
 
@@ -98,6 +187,29 @@ Tek resim GUI:
   --debug \
   --loop \
   --wait-ms 30 \
+  --proc-resize-width 960
+```
+
+Klasordeki resimleri headless test et:
+
+```bash
+.venv/bin/python main.py \
+  --source images \
+  --images-dir pcb_template_tools/test_images \
+  --headless \
+  --debug \
+  --wait-ms 1 \
+  --proc-resize-width 960
+```
+
+Klasordeki resimleri GUI ile sirayla goster:
+
+```bash
+.venv/bin/python main.py \
+  --source images \
+  --images-dir pcb_template_tools/test_images \
+  --debug \
+  --wait-ms 1500 \
   --proc-resize-width 960
 ```
 
@@ -112,108 +224,7 @@ Video GUI:
   --proc-resize-width 720
 ```
 
-Webcam GUI:
-
-```bash
-.venv/bin/python main.py \
-  --source webcam \
-  --camera-device 0 \
-  --camera-backend any \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --proc-resize-width 720
-```
-
-Raspberry Pi Camera GUI:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 720
-```
-
-IDS GUI:
-
-```bash
-.venv/bin/python main.py \
-  --source ids \
-  --camera-device /dev/video0 \
-  --camera-backend auto \
-  --debug \
-  --width 1600 \
-  --height 1200 \
-  --proc-resize-width 960 \
-  --disable-mjpg
-```
-
-## Image Test
-
-Headless hizli regression:
-
-```bash
-.venv/bin/python main.py \
-  --source images \
-  --images-dir pcb_template_tools/test_images \
-  --headless \
-  --debug \
-  --wait-ms 1 \
-  --proc-resize-width 960
-```
-
-GUI ile tek tek gormek icin:
-
-```bash
-.venv/bin/python main.py \
-  --source images \
-  --images-dir pcb_template_tools/test_images \
-  --debug \
-  --wait-ms 1500 \
-  --proc-resize-width 960
-```
-
-Tek resim:
-
-```bash
-.venv/bin/python main.py \
-  --source image \
-  --image-path pcb_template_tools/test_images/IMG_9688.JPG \
-  --debug \
-  --loop \
-  --wait-ms 30 \
-  --proc-resize-width 960
-```
-
-Tek IDS test resmi:
-
-```bash
-.venv/bin/python main.py \
-  --source image \
-  --image-path pcb_template_tools/test_images/IDS_Kamera.bmp \
-  --headless \
-  --debug \
-  --proc-resize-width 960
-```
-
-## Video Test
-
-Detayli kontrol:
-
-```bash
-.venv/bin/python main.py \
-  --source video \
-  --video-path pcb_template_tools/test_video/WIN_20260420_11_54_52_Pro.mp4 \
-  --debug \
-  --video-resize-width 720 \
-  --proc-resize-width 720
-```
-
-Daha hizli test icin frame atlama:
+Video headless hizli test:
 
 ```bash
 .venv/bin/python main.py \
@@ -227,9 +238,15 @@ Daha hizli test icin frame atlama:
   --proc-resize-width 720
 ```
 
-## Live Webcam Test
+## Webcam ve IDS Komutlari
 
-Once kamera acilisini test et:
+Video cihazlarini listele:
+
+```bash
+.venv/bin/python main.py --list-video-devices
+```
+
+Webcam acilis testi:
 
 ```bash
 .venv/bin/python main.py \
@@ -240,7 +257,7 @@ Once kamera acilisini test et:
   --debug
 ```
 
-Canli calistirma:
+Webcam canli detection:
 
 ```bash
 .venv/bin/python main.py \
@@ -253,112 +270,7 @@ Canli calistirma:
   --proc-resize-width 720
 ```
 
-Linux/V4L2 ile:
-
-```bash
-.venv/bin/python main.py \
-  --source webcam \
-  --camera-device 0 \
-  --camera-backend v4l2 \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --proc-resize-width 720
-```
-
-Eger FPS cok dusukse:
-
-```bash
-.venv/bin/python main.py \
-  --source webcam \
-  --camera-device 0 \
-  --camera-backend any \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --proc-resize-width 540
-```
-
-Eger board cok uzaktaysa veya kucuk gorunuyorsa kameraya biraz yaklastir. Yeni ayarlarda kucuk board icin `0.08` template scale destegi var, ama cok uzak ve bulanikhsa component ROI'leri dogru oturmaz.
-
-## Raspberry Pi Camera Testi
-
-Raspberry Pi 5 + Raspberry Pi AI Camera icin yeni kaynak `--source picamera` olarak eklendi. Bu kaynak Picamera2/libcamera uzerinden normal RGB frame alir ve mevcut klasik OpenCV detector pipeline'ina BGR frame olarak verir. Yani AI Camera bu projede once normal kamera gibi kullanilir; component detection mantigi degismez.
-
-Pi tarafinda Picamera2 genelde apt paketi olarak gelir. Sistem Python ile en sorunsuz baslangic:
-
-```bash
-sudo apt install python3-picamera2 python3-opencv python3-yaml
-cd /home/emrahtek/codelab/PCB_Bildverarbeitung
-PYTHONPATH=. /usr/bin/python3 main.py --list-video-devices
-```
-
-Once kamera acilisini ve ilk frame'i test et:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --camera-open-check \
-  --save-first-frame /tmp/picamera-first-frame.png \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30
-```
-
-Canli component detection:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 720
-```
-
-Bu komut `config/default.yaml` icindeki `source_profiles.picamera` ayarlari sayesinde Pi icin hazirlanan `preparation_output_pi` ve `generated_templates_pi` bankasini kullanir.
-
-Pi uzerinde FPS dusukse:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 540
-```
-
-Eger terminalde `(.venv)` gorunuyorsa, `python3` komutu da venv icinden gelebilir ve apt ile gelen `picamera2` paketini gormez. Pi Camera icin en net komut `PYTHONPATH=. /usr/bin/python3 main.py ...` seklindedir. `.venv/bin/python` kullanmak istiyorsan, venv'in apt ile gelen `picamera2` paketini gorebilmesi gerekir; bunun icin venv'i Pi'de system-site-packages ile olustur.
-
-## IDS Kamera Testi
-
-Desteklenen hedef kamera:
-
-- IDS UI-3250CP-M-GL rev.2
-- Lens: SV-1614H
-
-Kod tarafinda IDS icin ayri `--source ids` profili vardir ve detector kapatilmaz. Akis yine normal GUI pipeline'idir:
-
-```text
-IDS frame -> board localization -> canonical warp -> component detection -> GUI overlay
-```
-
-`--source ids` detector'u kapatmadan normal GUI pipeline'ini calistirir. Elle verilen `--camera-device 0` veya `--camera-device /dev/videoX` hedefleri kullanici tercihi kabul edilir: Linux cihaz adi IDS/uEye gibi gorunmese bile acilmaya calisilir, sadece WARNING loglanir. Yalnizca OpenCV cihazi gercekten acamazsa hata alirsiniz.
-
-Dogru `/dev/videoX` cihazini bulmak icin:
-
-```bash
-.venv/bin/python main.py --list-video-devices
-```
-
-Once kamera acilisini test et:
+IDS kamera acilis testi:
 
 ```bash
 .venv/bin/python main.py \
@@ -372,7 +284,7 @@ Once kamera acilisini test et:
   --disable-mjpg
 ```
 
-Canli IDS calistirma:
+IDS canli detection:
 
 ```bash
 .venv/bin/python main.py \
@@ -386,35 +298,7 @@ Canli IDS calistirma:
   --disable-mjpg
 ```
 
-`--camera-device 0` de kullanilabilir:
-
-```bash
-.venv/bin/python main.py \
-  --source ids \
-  --camera-device 0 \
-  --camera-backend auto \
-  --debug \
-  --width 1600 \
-  --height 1200 \
-  --proc-resize-width 960 \
-  --disable-mjpg
-```
-
-Eger IDS kamera gercekten `/dev/video2` ise:
-
-```bash
-.venv/bin/python main.py \
-  --source ids \
-  --camera-device /dev/video2 \
-  --camera-backend v4l2 \
-  --debug \
-  --width 1600 \
-  --height 1200 \
-  --proc-resize-width 960 \
-  --disable-mjpg
-```
-
-Eger IDS kamera V4L2 olarak gorunmuyorsa ve IDS Software Suite/uEye SDK + `pyueye` kuruluysa:
+IDS uEye SDK / pyueye yolu gerekiyorsa:
 
 ```bash
 .venv/bin/python main.py \
@@ -428,124 +312,185 @@ Eger IDS kamera V4L2 olarak gorunmuyorsa ve IDS Software Suite/uEye SDK + `pyuey
   --disable-mjpg
 ```
 
-OpenCV uEye backend'i sadece OpenCV runtime'iniz gercekten `CAP_UEYE` backend'ini destekliyorsa kullanilabilir. Mevcut test runtime'inda `cv.videoio_registry.hasBackend(cv.CAP_UEYE)` false donuyor; bu durumda su komut temiz bir hata mesaji ile durur:
+## Template Hazirlama Akisi
 
-```bash
-.venv/bin/python main.py \
-  --source ids \
-  --camera-device 0 \
-  --camera-backend ueye \
-  --camera-open-check \
-  --debug
+Template hazirlama iki adimlidir:
+
+1. Raw board fotograflarini kanonik board gorunumune warp et.
+2. En iyi warped board'lar uzerinden component ROI/template bankasini cikar.
+
+### Pi Camera Template Bankasini Yeniden Uretmek
+
+Raw Pi fotograflari buraya koy:
+
+```text
+pcb_template_tools/data/raw_pi
 ```
 
-GStreamer pipeline gerekirse `--camera-device` string olarak verilebilir:
+Warp ve kalite siralama:
 
 ```bash
-.venv/bin/python main.py \
-  --source ids \
-  --camera-device "v4l2src device=/dev/video0 ! video/x-raw,width=1600,height=1200,framerate=30/1 ! videoconvert ! appsink" \
-  --camera-backend gstreamer \
-  --debug \
-  --proc-resize-width 960 \
-  --disable-mjpg
+.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
+  --input-dir pcb_template_tools/data/raw_pi \
+  --output-dir pcb_template_tools/data/preparation_output_pi
 ```
 
-IDS notlari:
-
-- UI-3250CP-M-GL global shutter oldugu icin motion blur webcam'e gore daha az olmali; yine de exposure cok uzunsa component ROI matching zayiflar.
-- SV-1614H ile once board'u frame icinde orta-buyuk boyutta tut. Board cok kucukse warp dogru olsa bile RESET/JST guvenilir olmaz.
-- IDS SDK/uEye daemon kurulu olsa bile OpenCV build'inizde uEye video backend aktif degilse `--camera-backend ueye` calismaz.
-- `--camera-backend pyueye` icin IDS Software Suite/uEye SDK ve Python `pyueye` paketi gerekir. Paket yoksa komut net bir hata ile durur.
-- `--camera-device 0` ve `--camera-index 0` OpenCV'ye integer index `0` olarak verilir. `--camera-device /dev/video0` da V4L2 kullaniminda integer index `0` olarak yorumlanir; boylece OpenCV'nin "capture by name" hatasina dusulmez.
-- `--source ids` elle secilen IDS/uEye gibi gorunmeyen V4L2 cihazlarini artik reddetmez; warning loglar ve acmayi dener.
-- `--ids-allow-unverified-opencv` geriye donuk uyumluluk icin kaldi, ama elle secilen OpenCV hedefleri zaten warning ile acilmaya calisilir.
-- GStreamer gibi pipeline kullaniminda `--camera-device "v4l2src ... ! appsink"` string olarak kalir ve `--camera-backend gstreamer` ile denenir.
-- `source_profiles.ids` ayarlari webcam'den biraz farkli exposure/kontrast varsayimi ile gelir.
-
-Backend notlari:
-
-- `--camera-backend auto`: webcam icin `CAP_ANY`; IDS icin OpenCV `v4l2,any` denenir. Elle cihaz verilirse o hedef acilmaya calisilir.
-- `--camera-backend any`: OpenCV'nin varsayilan backend secimine birakir.
-- `--camera-backend v4l2`: Linux video cihazlari icin tercih edilir.
-- `--camera-backend pyueye`: IDS uEye SDK Python yolu; V4L2/OpenCV cihazina gerek duymaz.
-- `--camera-backend ueye`: yalnizca OpenCV runtime'iniz uEye backend'ini destekliyorsa kullanilir; aksi halde net hata verir.
-
-Kamera acilis sorunu giderme:
+Component template cikarma:
 
 ```bash
-ls /dev/video*
-.venv/bin/python main.py --list-video-devices
-.venv/bin/python main.py --source webcam --camera-device 0 --camera-backend any --camera-open-check --debug
-.venv/bin/python main.py --source webcam --camera-device /dev/video0 --camera-backend v4l2 --camera-open-check --debug
-PYTHONPATH=. /usr/bin/python3 main.py --source picamera --camera-open-check --save-first-frame /tmp/picamera-first-frame.png --debug --width 1280 --height 720 --camera-fps 30
-.venv/bin/python main.py --source ids --camera-device /dev/video0 --camera-backend auto --camera-open-check --debug --disable-mjpg
-.venv/bin/python main.py --source ids --camera-device /dev/video0 --camera-backend auto --camera-open-check --save-first-frame /tmp/ids-first-frame.png --debug --disable-mjpg
-.venv/bin/python main.py --source ids --camera-device 0 --camera-backend pyueye --camera-open-check --debug
+.venv/bin/python pcb_template_tools/tools/extract_templates.py \
+  --report pcb_template_tools/data/preparation_output_pi/board_quality_report.json \
+  --top-k 4 \
+  --output-dir pcb_template_tools/data/generated_templates_pi
 ```
 
-Loglarda IDS icin `IDS using OpenCV/V4L2 path`, `ids-opencv`, `verified_ids=True/False`, `IDS using pyueye path` veya hata mesaji gorunur. `verified_ids=False` artik bloklayici degildir; sadece secilen cihazin Linux adinin IDS/uEye gibi gorunmedigini soyler. Eger hata `can't open camera by index` ise hedef artik dogru integer index olarak gidiyor demektir; cihaz izinleri, indeks, baska uygulamanin kamerayi kullanmasi veya driver/IDS ayarlari kontrol edilmelidir.
+ROI pencereleri acildiginda sirasiyla su kutulari sec:
+
+1. `esp32`
+2. `usb_port`
+3. `jst_connector`
+4. `reset_button`
+
+Kutuyu cizdikten sonra `ENTER` veya `SPACE` ile onayla. Yanlis cizimde `c`
+ile tekrar secim yapabilirsin.
+
+Daha once secilmis ROI'leri tekrar kullanmak icin:
+
+```bash
+.venv/bin/python pcb_template_tools/tools/extract_templates.py \
+  --report pcb_template_tools/data/preparation_output_pi/board_quality_report.json \
+  --top-k 4 \
+  --output-dir pcb_template_tools/data/generated_templates_pi \
+  --roi-file pcb_template_tools/data/generated_templates_pi/component_rois.json
+```
+
+### iPhone Template Bankasini Yeniden Uretmek
+
+iPhone raw fotograflari buradadir:
+
+```text
+pcb_template_tools/data/pcb_iphone_raw
+```
+
+Warp:
+
+```bash
+.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
+  --input-dir pcb_template_tools/data/pcb_iphone_raw \
+  --output-dir pcb_template_tools/data/preparation_output
+```
+
+Template cikarma:
+
+```bash
+.venv/bin/python pcb_template_tools/tools/extract_templates.py \
+  --report pcb_template_tools/data/preparation_output/board_quality_report.json \
+  --top-k 3 \
+  --output-dir pcb_template_tools/data/generated_templates \
+  --roi-file pcb_template_tools/data/generated_templates/component_rois.json
+```
 
 ## Log Kontrolu
+
+Son log satirlarini gormek:
 
 ```bash
 tail -n 80 logs/app.log
 ```
 
-Ornek basarili satir:
+Canli calismada basarili bir debug satirinda tipik olarak su etiketler gorulur:
 
 ```text
 labels=BOARD, ESP32, JST_CONNECTOR, RESET_BUTTON, USB_PORT
 ```
 
-## Tuning Notlari
+Pi camera loglarinda `source=picamera:0` ve `labels=...` satirlari runtime'in
+dogru kaynakla calistigini gosterir.
 
-Ana ayarlar `config/default.yaml` icindedir.
+## Onemli Ayarlar
 
-- `board_template.scales`: PCB'nin frame icindeki boyut araligini belirler. Uzak/kucuk board icin `0.08-0.16` kritik.
-- `board.min_objectness_score`: TV, yuz, tisort, dolap gibi yanlis board adaylarini elemek icin kullanilir.
-- `board.min_pcb_structure_score`: pin/header benzeri ic yapi, edge dagilimi ve sol/sag PCB yapisini kontrol eder.
-- `board.min_canonical_structure_score`: canonical warp icinde beklenen sol ESP32 / sag konnektor yapisinin minimum kanitidir.
-- `board.min_edge_grid_score`: monitor/duvar/kasa gibi buyuk ama ic yapisi zayif dikdortgenleri elemek icin edge dagilimini kontrol eder.
-- `board.min_tightness_score`: board warp'inin PCB'yi ne kadar sikica sardigini kontrol eder.
-- `board.max_skin_ratio`: el/yuz bolgelerinden gelen false board adaylarini azaltir.
-- `board.verify_resize_width`: board verify hizini belirler. Daha kucuk deger hizli, ama biraz daha az hassastir.
-- `components.*.layout_fallback_score`: board guvenilir ama template match zayifsa sabit layout kutusunun skorudur.
-- `components.*.layout_roi`: component icin beklenen dar kanonik konumdur; USB/JST/RESET drift'ini azaltan ana layout prior buradan gelir.
-- `components.*.preprocess_mode`: ROI icin class-specific local contrast/edge enhancement secimidir.
-- `components.*.min_visibility_score`: ROI icindeki lokal gorunurluk kanitini kontrol eder.
-- `components.*.visibility_upscale`: kucuk parcalar icin local visibility/shape skorunu hesaplarken aday crop'unu buyutur; template matching boyutunu degistirmez.
-- `components.*.warp_quality_weight`: warp kalitesi cok iyiyse ve ROI kaniti de varsa component skoruna kucuk bir destek verir.
-- `components.*.keep_score_threshold`: live tracking sirasinda onceki component kilidini korumak icin gereken daha dusuk keep esigidir.
-- `components.*.keep_min_visibility_score`: locked local search veya persistence icin gereken minimum ROI gorunurlugudur.
-- `components.*.local_search_expansion`: onceki kanonik component kutusu etrafindaki local search penceresinin buyuklugudur.
-- `components.*.track_max_missing`: component'in kac kare dusuk kanit ile kisa sure korunabilecegini belirler.
-- `components.*.position_prior_weight`: template/edge skoruna layout veya onceki track pozisyonundan gelen kucuk, kaynak-bagimsiz destek verir.
-- `components.*.min_position_prior_acquire`: yeni component kilidi alinmadan once gereken layout yakinligi esigidir.
-- `components.*.min_position_prior_keep`: kilitli component'i korumak icin gereken layout veya onceki track yakinligi esigidir.
-- `tracking.board_smoothing_alpha`: live modda yeni board pozu ile onceki guvenilir board pozunun karisim oranidir.
-- `tracking.board_smoothing_min_quality`: board pozu stabilize edilmeden once gereken minimum warp kalitesidir.
-- `tracking.board_smoothing_max_shift`: ani buyuk hareketlerde smoothing'i kapatip yeni pozu oldugu gibi kullanmak icin limitdir.
-- `tracking.board_pose_max_area_growth`: yeni board pozu onceki poza gore fazla buyur ve tightness duserse eski poz kisa sure yeniden kullanilir.
-- `tracking.board_pose_max_quality_drop`: yeni board warp kalitesi belirgin duserse yanlis poza gecisi engeller.
-- `tracking.board_pose_max_tightness_drop`: loose/oversized board adaylarini canli takipte bastirir.
-- `source_profiles.video`, `source_profiles.webcam` ve `source_profiles.ids`: live kullanim icin daha hafif/uygun ayarlari override eder.
+Ana ayar dosyasi:
 
-Live stabilization kaynak-bagimsizdir:
+```text
+config/default.yaml
+```
 
-- Board smoothing sadece hem onceki hem yeni warp kaliteli ve hareket kucukse uygulanir.
-- Yeni board adayi loose, fazla buyuk veya kalite olarak belirgin zayifsa onceki homography mevcut frame'e yeniden uygulanir; bu `BOARD` averaging degil pose reuse'dur.
-- Component locking, frame uzayinda degil kanonik board uzayinda yapilir; kilitliyken once local search, sonra persistence denenir, full ROI search ise kilit kaybolunca devreye girer.
-- ESP32 daha esnek tutulur; USB/JST sag konnektor layout prior'i ile, RESET_BUTTON ise en guclu pozisyon onceligi, small-button shape skoru ve temporal persistence ile korunur.
+Sik kullanilan ayarlar:
 
-## Raspberry Pi 5 Icin
+- `runtime.processing_width`: varsayilan islem genisligi.
+- `source_profiles.picamera`: Pi camera icin template, board ve component override'lari.
+- `source_profiles.picamera.templates`: Pi template bankasinin yollarini belirler.
+- `tracking.board_bbox_pad_right`: sadece goruntulenen `BOARD` kutusunun sag kenarini acar.
+- `components.USB_PORT.output_bbox_pad_right`: USB kutusunun sag kenarini cikista buyutur.
+- `components.JST_CONNECTOR.output_bbox_pad_right`: JST kutusunun sag kenarini cikista buyutur.
+- `components.*.layout_anchor`: board ve ROI kaniti guvenliyse component'i beklenen layout ROI'sine sabitler.
+- `components.*.layout_fallback_score`: layout fallback kullanildiginda gosterilecek skor.
+- `components.*.search_roi_expansion`: component arama alanini genisletir.
+- `components.*.layout_roi_left_trim`: layout kutusunun sol tarafini trim eder; USB/JST kutusunu saga toplamak icin kullanilir.
 
-Baslangic stratejisi:
+Pi profilinde son canli ayar, USB ve JST'nin sag dis kenarlarini kutu icinde
+tutacak sekilde yapilmistir. Bu ayar goruntu overlay'ini iyilestirir; template
+matching mantigini agresif sekilde degistirmez.
 
-- Pi Camera icin `--source picamera` kullan.
-- `--proc-resize-width 540` veya `720` ile basla.
-- `source_profiles.picamera.board.verify_resize_width` degerini `160-220` araliginda tut.
-- `source_profiles.picamera.board.max_reference_templates` degerini `4-5` araliginda tut.
-- Kamera sabit ise board tracking daha stabil olur; elde tutulan board icin daha fazla isik ve daha az motion blur gerekir.
+## Sorun Giderme
 
-GPU zorunlu degil. Bu pipeline OpenCV CPU uzerinde calisacak sekilde tasarlandi. Pi tarafinda asil kazanc, dogru resize, az referans, iyi isik ve sabit kamera/board mesafesinden gelir.
+Picamera2 venv icinde bulunamiyorsa:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py --source picamera --camera-open-check --debug
+```
+
+Kamera acilmiyorsa:
+
+```bash
+ls /dev/video*
+.venv/bin/python main.py --list-video-devices
+```
+
+Pi camera ilk frame kaydetme:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --camera-open-check \
+  --save-first-frame /tmp/picamera-first-frame.png \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30
+```
+
+Detection titriyorsa:
+
+- Daha sabit isik kullan.
+- Board'u frame icinde orta-buyuk tut.
+- Kamera ile board arasindaki mesafeyi sabit tut.
+- `--proc-resize-width 720` ile basla; FPS dusukse `540` dene.
+- Pi camera icin yeni raw fotograflar cekip `generated_templates_pi` bankasini yenile.
+
+## Gelistirici Kontrol Komutlari
+
+Syntax/import kontrolu:
+
+```bash
+python3 -m compileall main.py src tests
+```
+
+Pytest kuruluysa:
+
+```bash
+python3 -m pytest -q
+```
+
+Kisa headless goruntu kontrolu icin:
+
+```bash
+.venv/bin/python main.py \
+  --source images \
+  --images-dir pcb_template_tools/test_images \
+  --headless \
+  --debug \
+  --wait-ms 1 \
+  --proc-resize-width 960
+```

@@ -61,6 +61,11 @@ class ComponentSpec:
     min_position_prior_keep: float = 0.0
     persistence_decay: float = 0.88
     visibility_upscale: float = 1.0
+    layout_anchor: bool = False
+    output_bbox_pad_left: float = 0.0
+    output_bbox_pad_right: float = 0.0
+    output_bbox_pad_top: float = 0.0
+    output_bbox_pad_bottom: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,10 @@ class BoardFirstConfig:
     board_pose_max_tightness_drop: float = 0.20
     board_pose_quality_margin: float = 0.05
     board_pose_reuse_decay: float = 0.98
+    board_bbox_pad_left: float = 0.0
+    board_bbox_pad_right: float = 0.0
+    board_bbox_pad_top: float = 0.0
+    board_bbox_pad_bottom: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -155,7 +164,12 @@ class BoardFirstDetector(Detector):
                     reused.warp_quality_score,
                 )
                 component_detections = self._detect_components(reused, frame.shape)
-                return self._emit_detections(reused, component_detections, board_source="reused")
+                return self._emit_detections(
+                    reused,
+                    component_detections,
+                    board_source="reused",
+                    frame_shape=frame.shape,
+                )
             if self._missing_frames > self._cfg.max_missing_frames:
                 self._last_board_bbox = None
                 self._last_localization = None
@@ -179,7 +193,12 @@ class BoardFirstDetector(Detector):
         self._missing_frames = 0
 
         component_detections = self._detect_components(localization, frame.shape)
-        return self._emit_detections(localization, component_detections, board_source="pose")
+        return self._emit_detections(
+            localization,
+            component_detections,
+            board_source="pose",
+            frame_shape=frame.shape,
+        )
 
     def _reuse_last_localization(self, frame: np.ndarray) -> BoardLocalization | None:
         if not self._cfg.enable_tracking or self._last_localization is None:
@@ -316,16 +335,19 @@ class BoardFirstDetector(Detector):
         component_detections: list[Detection],
         *,
         board_source: str,
+        frame_shape: tuple[int, ...],
     ) -> list[Detection]:
         stable_components = self._temporal.update(component_detections)
         stable_components.sort(key=lambda det: det.label)
-        board_detection = Detection(label="BOARD", score=localization.score, bbox=localization.bbox)
+        board_bbox = self._display_board_bbox(localization.bbox, frame_shape)
+        board_detection = Detection(label="BOARD", score=localization.score, bbox=board_bbox)
         LOGGER.debug(
-            "board bbox generated: source=%s bbox=%s score=%.3f warp_quality=%.3f "
+            "board bbox generated: source=%s bbox=%s raw_bbox=%s score=%.3f warp_quality=%.3f "
             "geometry=%.3f verify=%.3f objectness=%.3f structure=%.3f canonical=%.3f "
             "identity=%.3f header=%.3f corner=%.3f connector=%.3f edge_grid=%.3f "
             "tightness=%.3f skin=%.3f quad_area=%.1f components_raw=%d components_stable=%d",
             board_source,
+            board_bbox,
             localization.bbox,
             localization.score,
             localization.warp_quality_score,
@@ -346,6 +368,53 @@ class BoardFirstDetector(Detector):
             len(stable_components),
         )
         return [board_detection, *stable_components]
+
+    def _display_board_bbox(self, bbox: BBox, frame_shape: tuple[int, ...]) -> BBox:
+        return self._pad_bbox_for_output(
+            bbox,
+            frame_shape,
+            left=self._cfg.board_bbox_pad_left,
+            right=self._cfg.board_bbox_pad_right,
+            top=self._cfg.board_bbox_pad_top,
+            bottom=self._cfg.board_bbox_pad_bottom,
+        )
+
+    @staticmethod
+    def _pad_bbox_for_output(
+        bbox: BBox,
+        frame_shape: tuple[int, ...],
+        *,
+        left: float = 0.0,
+        right: float = 0.0,
+        top: float = 0.0,
+        bottom: float = 0.0,
+    ) -> BBox:
+        pad_left = max(0.0, left)
+        pad_right = max(0.0, right)
+        pad_top = max(0.0, top)
+        pad_bottom = max(0.0, bottom)
+        if pad_left <= 0.0 and pad_right <= 0.0 and pad_top <= 0.0 and pad_bottom <= 0.0:
+            return bbox
+
+        frame_h, frame_w = frame_shape[:2]
+        width = max(1, bbox.width())
+        height = max(1, bbox.height())
+        return BBox(
+            int(max(0, np.floor(bbox.x1 - width * pad_left))),
+            int(max(0, np.floor(bbox.y1 - height * pad_top))),
+            int(min(frame_w - 1, np.ceil(bbox.x2 + width * pad_right))),
+            int(min(frame_h - 1, np.ceil(bbox.y2 + height * pad_bottom))),
+        )
+
+    def _output_component_bbox(self, spec: ComponentSpec, bbox: BBox, frame_shape: tuple[int, ...]) -> BBox:
+        return self._pad_bbox_for_output(
+            bbox,
+            frame_shape,
+            left=spec.output_bbox_pad_left,
+            right=spec.output_bbox_pad_right,
+            top=spec.output_bbox_pad_top,
+            bottom=spec.output_bbox_pad_bottom,
+        )
 
     def _detect_components(self, localization: BoardLocalization, frame_shape: tuple[int, ...]) -> list[Detection]:
         out: list[Detection] = []
@@ -465,6 +534,7 @@ class BoardFirstDetector(Detector):
                 candidate.visibility_score,
                 candidate.mode,
             )
+            mapped_bbox = self._output_component_bbox(spec, mapped_bbox, frame_shape)
             out.append(Detection(label=spec.label, score=candidate.score, bbox=mapped_bbox))
         return out
 
@@ -544,11 +614,16 @@ class BoardFirstDetector(Detector):
         window_visibility_score = self._roi_visibility_score(spec.label, crop)
         match_result = self._detect_component_in_roi(matcher, crop)
         detection = match_result.detection
+        layout_anchor_requested = self._should_use_layout_anchor(spec, localization, match_result)
+        layout_anchor_used = False
         low_score_candidate_used = False
         if detection is None and match_result.reason == "low_score":
             detection = match_result.candidate
             low_score_candidate_used = detection is not None
-        if detection is None:
+        if detection is None and layout_anchor_requested and spec.layout_roi is not None:
+            canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
+            layout_anchor_used = True
+        elif detection is None:
             if spec.label in {"USB_PORT", "JST_CONNECTOR"}:
                 coverage = self._right_connector_coverage_score(localization.warped)
                 LOGGER.debug(
@@ -575,15 +650,16 @@ class BoardFirstDetector(Detector):
                 search_bbox,
             )
             return None
-
-        canonical_bbox = BBox(
-            search_bbox.x1 + detection.bbox.x1,
-            search_bbox.y1 + detection.bbox.y1,
-            search_bbox.x1 + detection.bbox.x2,
-            search_bbox.y1 + detection.bbox.y2,
-        )
-        if self._should_snap_connector_to_layout(spec, match_result, low_score_candidate_used):
-            canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
+        else:
+            canonical_bbox = BBox(
+                search_bbox.x1 + detection.bbox.x1,
+                search_bbox.y1 + detection.bbox.y1,
+                search_bbox.x1 + detection.bbox.x2,
+                search_bbox.y1 + detection.bbox.y2,
+            )
+            if layout_anchor_requested or self._should_snap_connector_to_layout(spec, match_result, low_score_candidate_used):
+                canonical_bbox = self._roi_to_bbox(spec.layout_roi, localization.warped.shape)
+                layout_anchor_used = layout_anchor_requested
         local_visibility_score = self._candidate_visibility_score(spec, localization.warped, canonical_bbox)
         visibility_score = self._combine_visibility_score(spec.label, window_visibility_score, local_visibility_score)
         if visibility_score < min_visibility:
@@ -637,7 +713,7 @@ class BoardFirstDetector(Detector):
             )
             return None
 
-        raw_score = match_result.best_score if match_result.best_score >= 0.0 else detection.score
+        raw_score = match_result.best_score if match_result.best_score >= 0.0 else (detection.score if detection else 0.0)
         fused_score = self._fused_component_score(
             raw_score,
             visibility_score,
@@ -653,6 +729,23 @@ class BoardFirstDetector(Detector):
             track,
             priors=(layout_prior, track_prior, position_prior),
         )
+        if layout_anchor_used and spec.layout_fallback_score > 0.0:
+            anchored_score = min(float(localization.score), float(spec.layout_fallback_score))
+            if anchored_score > score:
+                LOGGER.debug(
+                    "component layout anchor boosted: label=%s mode=%s score=%.3f anchored=%.3f "
+                    "raw=%.3f visibility=%.3f board_score=%.3f warp_quality=%.3f canonical=%s",
+                    spec.label,
+                    mode,
+                    score,
+                    anchored_score,
+                    raw_score,
+                    visibility_score,
+                    localization.score,
+                    localization.warp_quality_score,
+                    canonical_bbox,
+                )
+                score = anchored_score
         if score < threshold:
             LOGGER.debug(
                 "component window rejected: label=%s mode=%s reason=low_prior_fused_score "
@@ -684,7 +777,26 @@ class BoardFirstDetector(Detector):
             search_bbox,
             canonical_bbox,
         )
-        return _ComponentCandidate(canonical_bbox, score, visibility_score, match_result, mode)
+        candidate_mode = "layout_anchor" if layout_anchor_used else mode
+        return _ComponentCandidate(canonical_bbox, score, visibility_score, match_result, candidate_mode)
+
+    @staticmethod
+    def _should_use_layout_anchor(
+        spec: ComponentSpec,
+        localization: BoardLocalization,
+        match_result: TemplateMatchResult,
+    ) -> bool:
+        if not spec.layout_anchor or spec.layout_roi is None:
+            return False
+        if spec.layout_fallback_score <= 0.0:
+            return False
+        if localization.score < spec.layout_fallback_min_board_score:
+            return False
+        if localization.warp_quality_score < spec.layout_fallback_min_warp_quality:
+            return False
+        if match_result.best_score < 0.0:
+            return spec.layout_fallback_min_match_score <= 0.0
+        return match_result.best_score >= max(0.0, spec.layout_fallback_min_match_score)
 
     @staticmethod
     def _should_snap_connector_to_layout(
@@ -1003,6 +1115,7 @@ class BoardFirstDetector(Detector):
             layout_prior,
             fallback_evidence,
         )
+        mapped_bbox = self._output_component_bbox(spec, mapped_bbox, frame_shape)
         return Detection(label=spec.label, score=score, bbox=mapped_bbox)
 
     def _candidate_visibility_score(self, spec: ComponentSpec, warped: np.ndarray, canonical_bbox: BBox) -> float:
