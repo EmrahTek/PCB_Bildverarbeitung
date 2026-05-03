@@ -1,37 +1,3 @@
-# NMS, Thresholding, Score-Filter
-# Treffer bereinigen: Score-Filter, Non-Maximum Suppression (NMS), Counts pro Label.
-
-"""
-postprocess.py
-
-This module contains postprocessing utilities for raw detections:
-- score filtering
-- Non-Maximum Suppression (NMS) using IoU
-- counting detections per label
-
-Inputs:
-- list[Detection] from a detector
-
-Outputs:
-- list[Detection] after filtering/NMS
-- dict[label, count] for UI overlay and logging
-
-Zu implementierende Funktionen
-
-    filter_by_score(detections, min_score) -> detections
-
-    iou(a: BBox, b: BBox) -> float
-
-    non_max_suppression(detections, iou_threshold) -> detections
-
-    count_by_label(detections) -> dict[str, int]
-
-Intersection over Union (search terms):
-"IoU bounding box explanation"
-"non maximum suppression implementation python"
-
-"""
-
 from __future__ import annotations
 
 from collections import Counter, defaultdict, deque
@@ -60,74 +26,39 @@ def iou(a: BBox, b: BBox) -> float:
     return inter_area / union
 
 
-def nms_detections(
-    detections: list[Detection],
-    *,
-    iou_threshold: float = 0.3,
-    max_detections: int | None = None,
-) -> list[Detection]:
-    """Greedy non-maximum suppression based on score ordering."""
-    if not detections:
-        return []
-
-    candidates = sorted(detections, key=lambda d: d.score, reverse=True)
-    kept: list[Detection] = []
-
-    for det in candidates:
-        if all(iou(det.bbox, k.bbox) < iou_threshold for k in kept):
-            kept.append(det)
-            if max_detections is not None and len(kept) >= max_detections:
-                break
-    return kept
-
-
 def count_by_label(detections: Iterable[Detection]) -> dict[str, int]:
+    """Count detections per label."""
     return dict(Counter(det.label for det in detections))
 
 
-def translate_detections(detections: Iterable[Detection], dx: int, dy: int) -> list[Detection]:
-    """Translate detections from an ROI crop back into its parent image coordinates."""
-    out: list[Detection] = []
-    for det in detections:
-        box = det.bbox
-        out.append(
-            Detection(
-                label=det.label,
-                score=det.score,
-                bbox=BBox(box.x1 + dx, box.y1 + dy, box.x2 + dx, box.y2 + dy),
-            )
-        )
-    return out
-
-
-def map_detections_with_homography(detections: Iterable[Detection], h_inv: np.ndarray) -> list[Detection]:
-    """Map detections from warped-board space back to original frame coordinates."""
-    out: list[Detection] = []
-    for det in detections:
-        box = det.bbox
-        corners = np.array(
-            [[box.x1, box.y1], [box.x2, box.y1], [box.x2, box.y2], [box.x1, box.y2]],
-            dtype=np.float32,
-        ).reshape(-1, 1, 2)
-        mapped = cv.perspectiveTransform(corners, h_inv).reshape(-1, 2)
-        x1, y1 = mapped.min(axis=0)
-        x2, y2 = mapped.max(axis=0)
-        out.append(
-            Detection(
-                label=det.label,
-                score=det.score,
-                bbox=BBox(int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))),
-            )
-        )
-    return out
+def map_bbox_with_homography(bbox: BBox, h_inv: np.ndarray, frame_shape: tuple[int, ...]) -> BBox | None:
+    """Map a bounding box from canonical board space back to original image space."""
+    points = np.array(
+        [[bbox.x1, bbox.y1], [bbox.x2, bbox.y1], [bbox.x2, bbox.y2], [bbox.x1, bbox.y2]],
+        dtype=np.float32,
+    ).reshape(-1, 1, 2)
+    mapped = cv.perspectiveTransform(points, h_inv).reshape(-1, 2)
+    h, w = frame_shape[:2]
+    x1 = int(max(0, np.floor(mapped[:, 0].min())))
+    y1 = int(max(0, np.floor(mapped[:, 1].min())))
+    x2 = int(min(w - 1, np.ceil(mapped[:, 0].max())))
+    y2 = int(min(h - 1, np.ceil(mapped[:, 1].max())))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return BBox(x1, y1, x2, y2)
 
 
 @dataclass
 class TemporalDetectionFilter:
-    """Simple temporal voting filter to suppress one-frame false positives."""
+    """
+    Simple temporal voting filter.
+
+    The filter keeps one best detection per label per frame and only emits a stable
+    result once a label appears often enough inside the sliding time window.
+    """
 
     window_size: int = 5
-    min_hits: int = 3
+    min_hits: int = 2
 
     def __post_init__(self) -> None:
         if self.window_size <= 0:
@@ -136,27 +67,32 @@ class TemporalDetectionFilter:
             raise ValueError("min_hits must be positive")
         self._history: dict[str, deque[Detection | None]] = defaultdict(lambda: deque(maxlen=self.window_size))
 
-    def update(self, detections: list[Detection]) -> list[Detection]:
-        grouped: dict[str, Detection] = {}
-        for det in detections:
-            best = grouped.get(det.label)
-            if best is None or det.score > best.score:
-                grouped[det.label] = det
+    def reset(self) -> None:
+        """Clear all temporal history after the tracked board is lost."""
+        self._history.clear()
 
-        labels = set(self._history.keys()) | set(grouped.keys())
+    def update(self, detections: list[Detection]) -> list[Detection]:
+        best_per_label: dict[str, Detection] = {}
+        for detection in detections:
+            current = best_per_label.get(detection.label)
+            if current is None or detection.score > current.score:
+                best_per_label[detection.label] = detection
+
+        labels = set(self._history.keys()) | set(best_per_label.keys())
         for label in labels:
-            self._history[label].append(grouped.get(label))
+            self._history[label].append(best_per_label.get(label))
 
         stable: list[Detection] = []
-        for label, hist in self._history.items():
-            present = [item for item in hist if item is not None]
+        for label, history in self._history.items():
+            present = [item for item in history if item is not None]
             if len(present) < self.min_hits:
                 continue
-            x1 = int(round(sum(d.bbox.x1 for d in present) / len(present)))
-            y1 = int(round(sum(d.bbox.y1 for d in present) / len(present)))
-            x2 = int(round(sum(d.bbox.x2 for d in present) / len(present)))
-            y2 = int(round(sum(d.bbox.y2 for d in present) / len(present)))
-            score = max(d.score for d in present)
+            x1 = int(round(sum(det.bbox.x1 for det in present) / len(present)))
+            y1 = int(round(sum(det.bbox.y1 for det in present) / len(present)))
+            x2 = int(round(sum(det.bbox.x2 for det in present) / len(present)))
+            y2 = int(round(sum(det.bbox.y2 for det in present) / len(present)))
+            score = max(det.score for det in present)
             stable.append(Detection(label=label, score=score, bbox=BBox(x1, y1, x2, y2)))
 
+        stable.sort(key=lambda det: det.label)
         return stable

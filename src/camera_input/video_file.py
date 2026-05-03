@@ -1,42 +1,9 @@
-# deterministische Tests mit Video-Datei
-# Deterministische Frame-Quelle aus Video-Datei (Pflicht für Tests & Reproduzierbarkeit).
-"""
-video_file.py
-
-This module implements a deterministic FrameSource backed by a video file.
-It is critical for reproducible testing and debugging, allowing the pipeline
-to run without a live camera.
-
-Inputs:
-- Path to a video file
-- loop flag to replay the video
-
-Outputs:
-- Frames as NumPy arrays (BGR) and FrameMeta objects 
-
-Zu implementierende Funktionen / Klassen
-
-class VideoFileSource(FrameSource):
-
-    __init__(path: Path, loop: bool = False)
-
-    open()
-
-    read() (end-of-file handling)
-
-    close()
-
-    OpenCV VideoCapture also supports video files:
-https://docs.opencv.org/4.x/dd/d43/tutorial_py_video_display.html
-
-"""
 from __future__ import annotations
 
 import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import cv2 as cv
 import numpy as np
@@ -49,6 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class VideoFileConfig:
+    """Configuration for deterministic video playback."""
     path: Path
     loop: bool = False
     resize_width: int | None = None
@@ -57,11 +25,11 @@ class VideoFileConfig:
 
 
 class VideoFileSource(FrameSource):
-    """Video-file-based frame source for deterministic playback."""
+    """Read frames from a video file with optional stride and resize."""
 
     def __init__(self, cfg: VideoFileConfig) -> None:
         self._cfg = cfg
-        self._cap: Optional[cv.VideoCapture] = None
+        self._cap: cv.VideoCapture | None = None
         self._frame_id = 0
 
     def open(self) -> None:
@@ -72,7 +40,7 @@ class VideoFileSource(FrameSource):
             raise RuntimeError(f"Failed to open video file: {self._cfg.path}")
         LOGGER.info("Video opened: %s", self._cfg.path)
 
-    def read(self) -> tuple[Optional[np.ndarray], Optional[FrameMeta]]:
+    def read(self) -> tuple[np.ndarray | None, FrameMeta | None]:
         if self._cap is None:
             raise RuntimeError("VideoFileSource.read() called before open().")
 
@@ -96,25 +64,28 @@ class VideoFileSource(FrameSource):
             if not ok or frame is None:
                 return None, None
 
-        if self._cfg.resize_width is not None or self._cfg.resize_height is not None:
-            frame = self._resize(frame)
-
-        meta = FrameMeta(frame_id=self._frame_id, timestamp_s=time.perf_counter(), source=f"video:{self._cfg.path.name}")
+        frame = self._resize(frame)
+        meta = FrameMeta(
+            frame_id=self._frame_id,
+            timestamp_s=time.perf_counter(),
+            source=f"video:{self._cfg.path.name}",
+        )
         self._frame_id += 1
         return frame, meta
 
     def _resize(self, frame: np.ndarray) -> np.ndarray:
-        h, w = frame.shape[:2]
         if self._cfg.resize_width is None and self._cfg.resize_height is None:
             return frame
+
+        height, width = frame.shape[:2]
         if self._cfg.resize_width is None:
-            scale = float(self._cfg.resize_height) / float(h)
+            scale = float(self._cfg.resize_height) / float(height)
+            new_w = int(round(width * scale))
             new_h = int(self._cfg.resize_height)
-            new_w = int(round(w * scale))
         elif self._cfg.resize_height is None:
-            scale = float(self._cfg.resize_width) / float(w)
+            scale = float(self._cfg.resize_width) / float(width)
             new_w = int(self._cfg.resize_width)
-            new_h = int(round(h * scale))
+            new_h = int(round(height * scale))
         else:
             new_w = int(self._cfg.resize_width)
             new_h = int(self._cfg.resize_height)

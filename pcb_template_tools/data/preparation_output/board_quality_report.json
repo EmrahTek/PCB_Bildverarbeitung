@@ -1,0 +1,417 @@
+{
+  "num_input_images": 20,
+  "num_successes": 17,
+  "num_failures": 3,
+  "best_image": {
+    "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9763.JPG",
+    "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+    "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9763_preview.png",
+    "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9763_mask.png",
+    "board_found": true,
+    "detection_method": "min_area_rect",
+    "board_area_ratio": 0.0924,
+    "aspect_ratio": 2.1008999347686768,
+    "canonical_rotation_deg": 0,
+    "canonical_right_minus_left_brightness": 75.933,
+    "metrics": {
+      "sharpness": 2077.118,
+      "contrast": 67.54,
+      "brightness_mean": 77.13,
+      "brightness_std": 67.54,
+      "exposure_score": 0.5319,
+      "saturation_penalty": 0.4428,
+      "board_fill_ratio": 0.7982,
+      "total_score": 85.969
+    }
+  },
+  "all_results": [
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9763.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9763_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9763_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0924,
+      "aspect_ratio": 2.1008999347686768,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 75.933,
+      "metrics": {
+        "sharpness": 2077.118,
+        "contrast": 67.54,
+        "brightness_mean": 77.13,
+        "brightness_std": 67.54,
+        "exposure_score": 0.5319,
+        "saturation_penalty": 0.4428,
+        "board_fill_ratio": 0.7982,
+        "total_score": 85.969
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9757.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9757_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9757_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9757_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0589,
+      "aspect_ratio": 2.131200075149536,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 75.001,
+      "metrics": {
+        "sharpness": 1655.863,
+        "contrast": 67.857,
+        "brightness_mean": 73.389,
+        "brightness_std": 67.857,
+        "exposure_score": 0.5061,
+        "saturation_penalty": 0.615,
+        "board_fill_ratio": 0.8134,
+        "total_score": 84.797
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9766.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9766_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9766_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9766_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0843,
+      "aspect_ratio": 2.1036999225616455,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 71.334,
+      "metrics": {
+        "sharpness": 1990.302,
+        "contrast": 68.135,
+        "brightness_mean": 72.477,
+        "brightness_std": 68.135,
+        "exposure_score": 0.4998,
+        "saturation_penalty": 0.6277,
+        "board_fill_ratio": 0.8103,
+        "total_score": 84.665
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9751.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9751_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9751_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9751_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.1165,
+      "aspect_ratio": 1.9591000080108643,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 31.463,
+      "metrics": {
+        "sharpness": 1348.174,
+        "contrast": 62.245,
+        "brightness_mean": 60.541,
+        "brightness_std": 62.245,
+        "exposure_score": 0.4175,
+        "saturation_penalty": 0.698,
+        "board_fill_ratio": 0.861,
+        "total_score": 82.273
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9749.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9749_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9749_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9749_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0974,
+      "aspect_ratio": 1.9768999814987183,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 40.151,
+      "metrics": {
+        "sharpness": 1668.424,
+        "contrast": 63.442,
+        "brightness_mean": 60.193,
+        "brightness_std": 63.442,
+        "exposure_score": 0.4151,
+        "saturation_penalty": 0.7775,
+        "board_fill_ratio": 0.8533,
+        "total_score": 81.954
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9767.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9767_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9767_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9767_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.5634,
+      "aspect_ratio": 2.364000082015991,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 22.611,
+      "metrics": {
+        "sharpness": 743.511,
+        "contrast": 41.783,
+        "brightness_mean": 159.041,
+        "brightness_std": 41.783,
+        "exposure_score": 0.9032,
+        "saturation_penalty": 0.0726,
+        "board_fill_ratio": 0.2295,
+        "total_score": 81.905
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9748.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9748_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9748_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9748_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.078,
+      "aspect_ratio": 1.9967999458312988,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 48.42,
+      "metrics": {
+        "sharpness": 2005.174,
+        "contrast": 62.597,
+        "brightness_mean": 55.514,
+        "brightness_std": 62.597,
+        "exposure_score": 0.3829,
+        "saturation_penalty": 0.8992,
+        "board_fill_ratio": 0.8602,
+        "total_score": 80.651
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9746.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9746_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9746_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9746_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0411,
+      "aspect_ratio": 2.004300117492676,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 54.429,
+      "metrics": {
+        "sharpness": 1300.252,
+        "contrast": 63.147,
+        "brightness_mean": 54.975,
+        "brightness_std": 63.147,
+        "exposure_score": 0.3791,
+        "saturation_penalty": 0.9174,
+        "board_fill_ratio": 0.8594,
+        "total_score": 80.606
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9752.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9752_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9752_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9752_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0514,
+      "aspect_ratio": 2.0,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 51.543,
+      "metrics": {
+        "sharpness": 1850.382,
+        "contrast": 64.138,
+        "brightness_mean": 54.301,
+        "brightness_std": 64.138,
+        "exposure_score": 0.3745,
+        "saturation_penalty": 0.9385,
+        "board_fill_ratio": 0.8551,
+        "total_score": 80.594
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9745.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9745_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9745_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9745_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.068,
+      "aspect_ratio": 1.9931000471115112,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 48.428,
+      "metrics": {
+        "sharpness": 1996.611,
+        "contrast": 62.477,
+        "brightness_mean": 54.316,
+        "brightness_std": 62.477,
+        "exposure_score": 0.3746,
+        "saturation_penalty": 0.9139,
+        "board_fill_ratio": 0.862,
+        "total_score": 80.438
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9750.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9750_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9750_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9750_mask.png",
+      "board_found": true,
+      "detection_method": "approx_quad",
+      "board_area_ratio": 0.0584,
+      "aspect_ratio": 2.0418999195098877,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 27.684,
+      "metrics": {
+        "sharpness": 1726.871,
+        "contrast": 59.643,
+        "brightness_mean": 47.261,
+        "brightness_std": 59.643,
+        "exposure_score": 0.3259,
+        "saturation_penalty": 1.0,
+        "board_fill_ratio": 0.9048,
+        "total_score": 79.031
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9744.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9744_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9744_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9744_mask.png",
+      "board_found": true,
+      "detection_method": "approx_quad",
+      "board_area_ratio": 0.0605,
+      "aspect_ratio": 2.0164999961853027,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 25.923,
+      "metrics": {
+        "sharpness": 1933.807,
+        "contrast": 58.751,
+        "brightness_mean": 46.806,
+        "brightness_std": 58.751,
+        "exposure_score": 0.3228,
+        "saturation_penalty": 1.0,
+        "board_fill_ratio": 0.9,
+        "total_score": 78.738
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9742.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9742_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9742_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9742_mask.png",
+      "board_found": true,
+      "detection_method": "approx_quad",
+      "board_area_ratio": 0.0497,
+      "aspect_ratio": 2.102799892425537,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 32.115,
+      "metrics": {
+        "sharpness": 1707.491,
+        "contrast": 58.216,
+        "brightness_mean": 44.633,
+        "brightness_std": 58.216,
+        "exposure_score": 0.3078,
+        "saturation_penalty": 1.0,
+        "board_fill_ratio": 0.9041,
+        "total_score": 78.448
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9741.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9741_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9741_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9741_mask.png",
+      "board_found": true,
+      "detection_method": "approx_quad",
+      "board_area_ratio": 0.0498,
+      "aspect_ratio": 2.025899887084961,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 28.295,
+      "metrics": {
+        "sharpness": 1735.955,
+        "contrast": 57.738,
+        "brightness_mean": 44.543,
+        "brightness_std": 57.738,
+        "exposure_score": 0.3072,
+        "saturation_penalty": 1.0,
+        "board_fill_ratio": 0.907,
+        "total_score": 78.361
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9756.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9756_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9756_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9756_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.1446,
+      "aspect_ratio": 2.498699903488159,
+      "canonical_rotation_deg": 180,
+      "canonical_right_minus_left_brightness": 14.996,
+      "metrics": {
+        "sharpness": 49.224,
+        "contrast": 7.788,
+        "brightness_mean": 156.103,
+        "brightness_std": 7.788,
+        "exposure_score": 0.9234,
+        "saturation_penalty": 0.0,
+        "board_fill_ratio": 0.4031,
+        "total_score": 33.244
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9747.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9747_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9747_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9747_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0765,
+      "aspect_ratio": 1.7060999870300293,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 39.12,
+      "metrics": {
+        "sharpness": 5.937,
+        "contrast": 19.498,
+        "brightness_mean": 145.106,
+        "brightness_std": 19.498,
+        "exposure_score": 0.9993,
+        "saturation_penalty": 0.0,
+        "board_fill_ratio": 0.4709,
+        "total_score": 30.115
+      }
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9743.JPG",
+      "warped": "pcb_template_tools/data/preparation_output/warped/IMG_9743_warped.png",
+      "preview": "pcb_template_tools/data/preparation_output/previews/IMG_9743_preview.png",
+      "mask": "pcb_template_tools/data/preparation_output/masks/IMG_9743_mask.png",
+      "board_found": true,
+      "detection_method": "min_area_rect",
+      "board_area_ratio": 0.0794,
+      "aspect_ratio": 1.6598000526428223,
+      "canonical_rotation_deg": 0,
+      "canonical_right_minus_left_brightness": 41.789,
+      "metrics": {
+        "sharpness": 5.657,
+        "contrast": 20.763,
+        "brightness_mean": 146.681,
+        "brightness_std": 20.763,
+        "exposure_score": 0.9884,
+        "saturation_penalty": 0.0,
+        "board_fill_ratio": 0.4352,
+        "total_score": 29.842
+      }
+    }
+  ],
+  "failures": [
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9762.JPG",
+      "reason": "board_not_found"
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9764.JPG",
+      "reason": "board_not_found"
+    },
+    {
+      "source": "pcb_template_tools/data/pcb_iphone_raw/IMG_9765.JPG",
+      "reason": "board_not_found"
+    }
+  ]
+}

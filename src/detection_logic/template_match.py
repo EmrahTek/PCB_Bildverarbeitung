@@ -6,130 +6,220 @@ import cv2 as cv
 import numpy as np
 
 from src.detection_logic.base import Detector
-from src.detection_logic.postprocess import nms_detections
+from src.preprocessing.filters import MatchPrepConfig, prepare_match_images
 from src.utils.types import BBox, Detection
 
 
 @dataclass(frozen=True)
 class TemplateMatchConfig:
-    label: str = "ESP32"
-    method: int = cv.TM_CCOEFF_NORMED
-    score_threshold: float = 0.66
-    scales: tuple[float, ...] = (0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30)
-    nms_iou_threshold: float = 0.25
-    max_candidates_per_template: int = 8
-    max_detections: int = 8
-    min_template_size: int = 14
-    top_k: int | None = 1
+    """Configuration for a component-specific template matcher."""
+    label: str
+    score_threshold: float
+    scales: tuple[float, ...]
+    gray_weight: float = 0.65
+    edge_weight: float = 0.35
     use_clahe: bool = True
     blur_ksize: int = 3
-    local_max_kernel: int = 5
+    min_template_size: int = 12
+    min_score_margin: float = 0.0
+    second_best_iou_threshold: float = 0.45
+    preprocess_mode: str = "default"
+
+
+@dataclass(frozen=True)
+class _PreparedTemplate:
+    gray: np.ndarray
+    edges: np.ndarray
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class TemplateMatchResult:
+    """Best template hit plus ambiguity diagnostics."""
+    detection: Detection | None
+    best_score: float
+    second_score: float
+    score_margin: float
+    reason: str = ""
+    candidate: Detection | None = None
 
 
 class TemplateMatcher(Detector):
-    """Fast multi-scale template matcher with precomputed scaled templates."""
+    """
+    Multi-scale matcher that combines grayscale and edge correlation.
+
+    The implementation intentionally returns only the best hit because every ROI in
+    this project is expected to contain at most one component instance.
+    """
 
     def __init__(self, templates_gray: list[np.ndarray], cfg: TemplateMatchConfig) -> None:
         if not templates_gray:
-            raise ValueError("templates_gray is empty.")
+            raise ValueError("templates_gray must not be empty")
         self._cfg = cfg
-        self._scaled_templates: list[np.ndarray] = []
-        for tmpl in templates_gray:
-            base = self._prepare_template(tmpl)
-            for scale in cfg.scales:
-                resized = self._resize_template(base, scale)
-                if resized is not None:
-                    self._scaled_templates.append(resized)
-        if not self._scaled_templates:
-            raise ValueError("No usable scaled templates could be built.")
+        self._prep_cfg = MatchPrepConfig(
+            use_clahe=cfg.use_clahe,
+            blur_ksize=cfg.blur_ksize,
+            mode=cfg.preprocess_mode,
+        )
+        self._templates: list[_PreparedTemplate] = []
+        for template in templates_gray:
+            self._templates.extend(self._prepare_template_variants(template))
+        if not self._templates:
+            raise ValueError("No valid scaled templates could be prepared.")
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
-        gray = self._prepare_frame(frame)
-        h_frame, w_frame = gray.shape[:2]
+        detection = self.detect_best(frame)
+        if detection is None:
+            return []
+        return [detection]
+
+    def detect_best(self, frame: np.ndarray) -> Detection | None:
+        return self.detect_best_with_stats(frame).detection
+
+    def detect_best_with_stats(self, frame: np.ndarray) -> TemplateMatchResult:
+        scene_gray, scene_edges = prepare_match_images(frame, self._prep_cfg)
         candidates: list[Detection] = []
-        kernel_size = max(3, int(self._cfg.local_max_kernel) | 1)
-        kernel = np.ones((kernel_size, kernel_size), np.uint8)
 
-        for tmpl in self._scaled_templates:
-            th, tw = tmpl.shape[:2]
-            if th > h_frame or tw > w_frame:
+        for template in self._templates:
+            if template.height > scene_gray.shape[0] or template.width > scene_gray.shape[1]:
                 continue
 
-            resp = cv.matchTemplate(gray, tmpl, self._cfg.method)
-            resp_f = resp.astype(np.float32)
-            resp_dil = cv.dilate(resp_f, kernel)
-            mask = (resp_f >= self._cfg.score_threshold) & (resp_f == resp_dil)
-            ys, xs = np.where(mask)
-            if xs.size == 0:
+            response = self._combined_response(scene_gray, scene_edges, template)
+            _, score, _, max_loc = cv.minMaxLoc(response)
+            x, y = max_loc
+            candidates.append(
+                Detection(
+                    label=self._cfg.label,
+                    score=float(score),
+                    bbox=BBox(int(x), int(y), int(x + template.width), int(y + template.height)),
+                )
+            )
+
+            if self._cfg.min_score_margin > 0.0:
+                suppressed = response.copy()
+                self._suppress_response_peak(suppressed, x, y, template.width, template.height)
+                _, second_score, _, second_loc = cv.minMaxLoc(suppressed)
+                sx, sy = second_loc
+                candidates.append(
+                    Detection(
+                        label=self._cfg.label,
+                        score=float(second_score),
+                        bbox=BBox(int(sx), int(sy), int(sx + template.width), int(sy + template.height)),
+                    )
+                )
+
+        if not candidates:
+            return TemplateMatchResult(None, -1.0, -1.0, 1.0, "no_valid_template")
+
+        candidates.sort(key=lambda det: det.score, reverse=True)
+        best = candidates[0]
+        second_score = -1.0
+        for candidate in candidates[1:]:
+            if _bbox_iou(best.bbox, candidate.bbox) <= self._cfg.second_best_iou_threshold:
+                second_score = candidate.score
+                break
+
+        margin = 1.0 if second_score < 0.0 else best.score - second_score
+        if best.score < self._cfg.score_threshold:
+            return TemplateMatchResult(None, best.score, second_score, margin, "low_score", best)
+        if margin < self._cfg.min_score_margin:
+            return TemplateMatchResult(None, best.score, second_score, margin, "ambiguous_score_margin", best)
+        return TemplateMatchResult(best, best.score, second_score, margin, candidate=best)
+
+    def detect_candidates(
+        self,
+        frame: np.ndarray,
+        *,
+        max_candidates: int = 8,
+        score_threshold: float | None = None,
+    ) -> list[Detection]:
+        """Return several strong, spatially distinct template candidates."""
+        scene_gray, scene_edges = prepare_match_images(frame, self._prep_cfg)
+        threshold = self._cfg.score_threshold if score_threshold is None else score_threshold
+        candidates: list[Detection] = []
+
+        for template in self._templates:
+            if template.height > scene_gray.shape[0] or template.width > scene_gray.shape[1]:
                 continue
 
-            scores = resp_f[ys, xs]
-            if scores.size > self._cfg.max_candidates_per_template:
-                k = self._cfg.max_candidates_per_template
-                idx = np.argpartition(scores, -k)[-k:]
-                xs, ys, scores = xs[idx], ys[idx], scores[idx]
+            response = self._combined_response(scene_gray, scene_edges, template).copy()
+            peaks_per_template = max(1, min(3, max_candidates))
+            for _ in range(peaks_per_template):
+                _, score, _, max_loc = cv.minMaxLoc(response)
+                if score < threshold:
+                    break
+                x, y = max_loc
+                candidates.append(
+                    Detection(
+                        label=self._cfg.label,
+                        score=float(score),
+                        bbox=BBox(int(x), int(y), int(x + template.width), int(y + template.height)),
+                    )
+                )
 
-            for x, y, s in zip(xs, ys, scores):
-                bbox = BBox(int(x), int(y), int(x + tw), int(y + th))
-                candidates.append(Detection(self._cfg.label, float(s), bbox))
+                suppress_x1 = max(0, x - template.width // 2)
+                suppress_y1 = max(0, y - template.height // 2)
+                suppress_x2 = min(response.shape[1], x + template.width // 2)
+                suppress_y2 = min(response.shape[0], y + template.height // 2)
+                response[suppress_y1:suppress_y2, suppress_x1:suppress_x2] = -1.0
 
-        detections = nms_detections(
-            candidates,
-            iou_threshold=self._cfg.nms_iou_threshold,
-            max_detections=self._cfg.max_detections,
-        )
-        if self._cfg.top_k is not None and len(detections) > self._cfg.top_k:
-            detections = sorted(detections, key=lambda d: d.score, reverse=True)[: self._cfg.top_k]
-        return detections
-    
+        candidates.sort(key=lambda det: det.score, reverse=True)
+        return candidates[:max_candidates]
+
     def best_raw_score(self, frame: np.ndarray) -> float:
-        gray = self._prepare_frame(frame)
-        h_frame, w_frame = gray.shape[:2]
+        """Return the best raw score without applying the configured threshold."""
+        scene_gray, scene_edges = prepare_match_images(frame, self._prep_cfg)
         best = -1.0
-
-        for tmpl in self._scaled_templates:
-            th, tw = tmpl.shape[:2]
-            if th > h_frame or tw > w_frame:
+        for template in self._templates:
+            if template.height > scene_gray.shape[0] or template.width > scene_gray.shape[1]:
                 continue
-
-            resp = cv.matchTemplate(gray, tmpl, self._cfg.method)
-            current = float(resp.max())
-            if current > best:
-                best = current
-
+            response = self._combined_response(scene_gray, scene_edges, template)
+            _, score, _, _ = cv.minMaxLoc(response)
+            best = max(best, float(score))
         return best
 
-    def _prepare_frame(self, frame: np.ndarray) -> np.ndarray:
-        gray = self._ensure_gray_uint8(frame)
-        if self._cfg.use_clahe:
-            clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            gray = clahe.apply(gray)
-        k = max(1, int(self._cfg.blur_ksize) | 1)
-        if k > 1:
-            gray = cv.GaussianBlur(gray, (k, k), 0)
-        return gray
+    def _combined_response(self, scene_gray: np.ndarray, scene_edges: np.ndarray, template: _PreparedTemplate) -> np.ndarray:
+        gray_response = cv.matchTemplate(scene_gray, template.gray, cv.TM_CCOEFF_NORMED)
+        if self._cfg.edge_weight <= 0.0:
+            return gray_response
 
-    def _prepare_template(self, tmpl: np.ndarray) -> np.ndarray:
-        return self._prepare_frame(tmpl)
+        edge_response = cv.matchTemplate(scene_edges, template.edges, cv.TM_CCOEFF_NORMED)
+        return self._cfg.gray_weight * gray_response + self._cfg.edge_weight * edge_response
 
     @staticmethod
-    def _ensure_gray_uint8(img: np.ndarray) -> np.ndarray:
-        if img.ndim == 2:
-            out = img
-        elif img.ndim == 3 and img.shape[2] == 3:
-            out = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-        else:
-            raise ValueError(f"Unsupported image shape: {img.shape}")
-        if out.dtype != np.uint8:
-            out = cv.normalize(out, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-        return out
+    def _suppress_response_peak(response: np.ndarray, x: int, y: int, width: int, height: int) -> None:
+        suppress_x1 = max(0, x - width // 2)
+        suppress_y1 = max(0, y - height // 2)
+        suppress_x2 = min(response.shape[1], x + width // 2 + 1)
+        suppress_y2 = min(response.shape[0], y + height // 2 + 1)
+        response[suppress_y1:suppress_y2, suppress_x1:suppress_x2] = -1.0
 
-    def _resize_template(self, tmpl: np.ndarray, scale: float) -> np.ndarray | None:
-        if scale <= 0:
-            return None
-        h, w = tmpl.shape[:2]
-        new_w = int(round(w * scale))
-        new_h = int(round(h * scale))
-        if new_w < self._cfg.min_template_size or new_h < self._cfg.min_template_size:
-            return None
-        return cv.resize(tmpl, (new_w, new_h), interpolation=cv.INTER_AREA)
+    def _prepare_template_variants(self, template: np.ndarray) -> list[_PreparedTemplate]:
+        gray, edges = prepare_match_images(template, self._prep_cfg)
+        variants: list[_PreparedTemplate] = []
+        for scale in self._cfg.scales:
+            if scale <= 0.0:
+                continue
+            width = int(round(gray.shape[1] * scale))
+            height = int(round(gray.shape[0] * scale))
+            if width < self._cfg.min_template_size or height < self._cfg.min_template_size:
+                continue
+            resized_gray = cv.resize(gray, (width, height), interpolation=cv.INTER_AREA)
+            resized_edges = cv.resize(edges, (width, height), interpolation=cv.INTER_AREA)
+            variants.append(_PreparedTemplate(resized_gray, resized_edges, width, height))
+        return variants
+
+
+def _bbox_iou(a: BBox, b: BBox) -> float:
+    inter_x1 = max(a.x1, b.x1)
+    inter_y1 = max(a.y1, b.y1)
+    inter_x2 = min(a.x2, b.x2)
+    inter_y2 = min(a.y2, b.y2)
+    inter_w = max(0, inter_x2 - inter_x1)
+    inter_h = max(0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    union = a.area() + b.area() - inter_area
+    if union <= 0:
+        return 0.0
+    return inter_area / union
