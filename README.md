@@ -2,10 +2,20 @@
 
 Authors: Emrah Tekin, Elena Bühler, Ruben Straub
 
-This project detects the main components on a FireBeetle / ESP32-based PCB with
-classic computer-vision techniques.
+This project was made at **FHGR** for the **Bildverarbeitung** course. It uses
+classic computer vision with **Python** and **OpenCV**. It does not use a neural
+network.
 
-Detected labels:
+The program detects important parts on a FireBeetle / ESP32 PCB. It can work
+with single images, image folders, videos, webcams, IDS cameras, and a Raspberry
+Pi camera.
+
+## What This Project Does
+
+The program looks at a camera frame or an image. Then it finds the PCB board and
+some important components on it.
+
+It detects these labels:
 
 - `BOARD`
 - `ESP32`
@@ -13,65 +23,73 @@ Detected labels:
 - `JST_CONNECTOR`
 - `RESET_BUTTON`
 
-The main runtime target is stable live component detection on a Raspberry Pi 5
-with a Sony/Pi camera. The older iPhone-based template bank is kept for default,
-image, webcam, video, and IDS workflows; a separate template bank is used for
-the Pi camera profile.
+The result is shown with colored boxes in an OpenCV window. The program can also
+run in headless mode for tests.
 
-## Short Summary
+## Main Idea
 
-The pipeline works as follows:
+The project uses a simple OpenCV pipeline:
 
-1. A frame is read from a camera or image source.
-2. The large PCB board is found first.
-3. The board is warped into a canonical `900 x 460` view.
-4. Components are searched inside expected ROI areas on the board.
-5. During live video, board pose and component boxes are tracked to reduce flicker.
-6. The result is drawn on the OpenCV GUI with colored boxes.
+1. Read a frame from a camera, image, folder, or video.
+2. Resize the frame if needed.
+3. Use image filters like grayscale, blur, CLAHE, and Canny edges.
+4. Find the PCB board.
+5. Warp the board into one fixed view: `900 x 460`.
+6. Search for components inside known board areas.
+7. Use template matching to find the parts.
+8. Track boxes over live frames to reduce flicker.
+9. Draw the result on the image.
 
-The canonical board orientation is always the same:
+The board view always has the same direction:
 
 - ESP32 / metal module on the left
 - USB-C and JST on the right
-- board long edge horizontal
+- long board side horizontal
 
-## Project Folders
+This fixed view makes template matching more stable.
+
+## Project Structure
 
 ```text
-config/default.yaml                         Main detector and source settings
-main.py                                     Application entry point
-src/                                        Camera, pipeline, detection, and render code
-tests/                                      Unit and smoke tests
-logs/app.log                                Runtime log file
-pcb_template_tools/tools/warp_and_rank_boards.py
-pcb_template_tools/tools/extract_templates.py
-pcb_template_tools/data/pcb_iphone_raw      iPhone raw photos
-pcb_template_tools/data/raw_pi              Pi camera raw photos
-pcb_template_tools/data/preparation_output  iPhone warp/mask/preview outputs
-pcb_template_tools/data/preparation_output_pi
-pcb_template_tools/data/generated_templates
-pcb_template_tools/data/generated_templates_pi
+main.py                                      Main program entry point
+config/default.yaml                          Main settings for sources and detection
+config/logging.yaml                          Logging settings
+src/app/                                     CLI and runtime pipeline
+src/camera_input/                            Webcam, IDS, Pi camera, image, and video sources
+src/preprocessing/                           Filters, color helpers, and board geometry
+src/detection_logic/                         Board and component detection
+src/render/                                  Overlay and FPS drawing
+src/utils/                                   Shared types, IO helpers, and template loading
+tests/                                       Unit and smoke tests
+pcb_template_tools/tools/                    Tools to build template banks
+pcb_template_tools/data/generated_templates  Template bank for image/webcam/video/IDS
+pcb_template_tools/data/generated_templates_pi Template bank for Raspberry Pi camera
 ```
 
-Template separation:
+## Requirements
 
-- The default, image, webcam, video, and IDS profiles use the iPhone bank:
-  `pcb_template_tools/data/generated_templates`
-- The `--source picamera` profile uses the Pi bank:
-  `pcb_template_tools/data/generated_templates_pi`
+Recommended system:
 
-This separation comes from the `source_profiles.picamera` section in
-`config/default.yaml`.
+- Linux or Raspberry Pi OS
+- Python 3.10 or newer
+- OpenCV
+- NumPy
+- PyYAML
+- pytest for tests
+
+For Raspberry Pi camera support, install Picamera2 with apt. It is normally not
+installed through pip.
 
 ## Installation
 
-Project path on this machine:
+Clone the repository:
 
 ```bash
-cd /home/emrahtek/Schreibtisch/CodeLab/PCB_Bauteilerkennung
+git clone git@github.com:EmrahTek/PCB_Bildverarbeitung.git
+cd PCB_Bildverarbeitung
 ```
 
-Virtual environment for a normal Linux/PC environment:
+Create a virtual environment on a normal Linux/PC system:
 
 ```bash
 python3 -m venv .venv
@@ -79,87 +97,27 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Quick import/syntax check:
+Install test tools if needed:
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+```
+
+Check that the Python files can be imported:
 
 ```bash
 .venv/bin/python -m compileall main.py src tests
 ```
 
-Run tests:
+Run the tests:
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
-Note: on Raspberry Pi, `picamera2` usually comes from apt packages. For Pi
-camera commands, `/usr/bin/python3` is often more reliable than `.venv/bin/python`.
+## Quick Start With One Image
 
-## Raspberry Pi Camera Live Run
-
-Required apt packages on the Pi:
-
-```bash
-sudo apt update
-sudo apt install python3-picamera2 python3-opencv python3-yaml
-```
-
-Test the camera and first frame:
-
-```bash
-cd /home/emrahtek/Schreibtisch/CodeLab/PCB_Bauteilerkennung
-
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --camera-open-check \
-  --save-first-frame /tmp/picamera-first-frame.png \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30
-```
-
-Main command for live Pi camera detection:
-
-```bash
-cd /home/emrahtek/Schreibtisch/CodeLab/PCB_Bauteilerkennung
-
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 720
-```
-
-`--debug` shows score/ratio text above boxes and writes detailed logs. This is
-the most stable Pi camera mode for this project; use it during calibration and
-runtime checks.
-
-When score text is not needed, remove `--debug`. Detection settings stay the
-same; only the on-screen score/ratio text is hidden:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30 \
-  --proc-resize-width 720
-```
-
-Note: `--proc-resize-width 720` is the selected stable Pi camera setting. Lower
-values can improve FPS, but they may reduce box precision for small components
-such as `RESET_BUTTON`.
-
-Press `q` in the GUI window to exit.
-
-## Single Image, Folder, and Video Commands
-
-Single-image GUI:
+Run detection on one test image:
 
 ```bash
 .venv/bin/python main.py \
@@ -171,7 +129,11 @@ Single-image GUI:
   --proc-resize-width 960
 ```
 
-Headless test for images in a folder:
+Press `q` in the OpenCV window to stop the program.
+
+## Run Many Images Headless
+
+This is useful for a quick check without a GUI:
 
 ```bash
 .venv/bin/python main.py \
@@ -183,43 +145,7 @@ Headless test for images in a folder:
   --proc-resize-width 960
 ```
 
-Show folder images one by one in the GUI:
-
-```bash
-.venv/bin/python main.py \
-  --source images \
-  --images-dir pcb_template_tools/test_images \
-  --debug \
-  --wait-ms 1500 \
-  --proc-resize-width 960
-```
-
-Video GUI:
-
-```bash
-.venv/bin/python main.py \
-  --source video \
-  --video-path pcb_template_tools/test_video/WIN_20260420_11_54_52_Pro.mp4 \
-  --debug \
-  --video-resize-width 720 \
-  --proc-resize-width 720
-```
-
-Fast headless video test:
-
-```bash
-.venv/bin/python main.py \
-  --source video \
-  --video-path pcb_template_tools/test_video/WIN_20260420_11_54_52_Pro.mp4 \
-  --headless \
-  --debug \
-  --max-frames 80 \
-  --video-resize-width 720 \
-  --video-stride 2 \
-  --proc-resize-width 720
-```
-
-## Webcam and IDS Commands
+## Webcam
 
 List video devices:
 
@@ -227,7 +153,7 @@ List video devices:
 .venv/bin/python main.py --list-video-devices
 ```
 
-Webcam open test:
+Check if the webcam opens:
 
 ```bash
 .venv/bin/python main.py \
@@ -238,7 +164,7 @@ Webcam open test:
   --debug
 ```
 
-Live webcam detection:
+Run live webcam detection:
 
 ```bash
 .venv/bin/python main.py \
@@ -251,7 +177,51 @@ Live webcam detection:
   --proc-resize-width 720
 ```
 
-IDS camera open test:
+## Raspberry Pi Camera
+
+Install the needed apt packages on the Raspberry Pi:
+
+```bash
+sudo apt update
+sudo apt install python3-picamera2 python3-opencv python3-yaml
+```
+
+Use `/usr/bin/python3` for Pi camera commands, because Picamera2 is installed as
+a system package.
+
+Check the camera and save the first frame:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --camera-open-check \
+  --save-first-frame /tmp/picamera-first-frame.png \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30
+```
+
+Run live Pi camera detection:
+
+```bash
+PYTHONPATH=. /usr/bin/python3 main.py \
+  --source picamera \
+  --camera-index 0 \
+  --debug \
+  --width 1280 \
+  --height 720 \
+  --camera-fps 30 \
+  --proc-resize-width 720
+```
+
+`--proc-resize-width 720` is a stable value for the Pi camera. Smaller values
+can be faster, but small parts like `RESET_BUTTON` can become less accurate.
+
+## IDS Camera
+
+Open test:
 
 ```bash
 .venv/bin/python main.py \
@@ -279,147 +249,69 @@ Live IDS detection:
   --disable-mjpg
 ```
 
-Use this when the IDS uEye SDK / pyueye path is required:
+## Video
+
+Run detection on a video file:
 
 ```bash
 .venv/bin/python main.py \
-  --source ids \
-  --camera-device 0 \
-  --camera-backend pyueye \
+  --source video \
+  --video-path pcb_template_tools/test_video/WIN_20260420_11_54_52_Pro.mp4 \
   --debug \
-  --width 1600 \
-  --height 1200 \
-  --proc-resize-width 960 \
-  --disable-mjpg
+  --video-resize-width 720 \
+  --proc-resize-width 720
 ```
 
-## Template Preparation Workflow
+## Template Preparation
 
-Template preparation has two steps:
+The project uses template banks. A template bank contains small images of the
+board and its components.
 
-1. Warp raw board photos into the canonical board view.
-2. Extract the component ROI/template bank from the best warped boards.
+The workflow has two steps:
 
-### Regenerate the Pi Camera Template Bank
+1. Warp raw board photos into the fixed board view.
+2. Select component ROIs and export component templates.
 
-Put raw Pi photos here:
-
-```text
-pcb_template_tools/data/raw_pi
-```
-
-Warp and rank by quality:
+Create a Pi camera template bank:
 
 ```bash
 .venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
   --input-dir pcb_template_tools/data/raw_pi \
   --output-dir pcb_template_tools/data/preparation_output_pi
-```
 
-Extract component templates:
-
-```bash
 .venv/bin/python pcb_template_tools/tools/extract_templates.py \
   --report pcb_template_tools/data/preparation_output_pi/board_quality_report.json \
   --top-k 4 \
   --output-dir pcb_template_tools/data/generated_templates_pi
 ```
 
-When ROI windows open, select these boxes in order:
+When the ROI window opens, select these parts:
 
 1. `esp32`
 2. `usb_port`
 3. `jst_connector`
 4. `reset_button`
 
-After drawing a box, confirm with `ENTER` or `SPACE`. If the box is wrong, press
-`c` and select it again.
-
-Reuse previously selected ROIs:
-
-```bash
-.venv/bin/python pcb_template_tools/tools/extract_templates.py \
-  --report pcb_template_tools/data/preparation_output_pi/board_quality_report.json \
-  --top-k 4 \
-  --output-dir pcb_template_tools/data/generated_templates_pi \
-  --roi-file pcb_template_tools/data/generated_templates_pi/component_rois.json
-```
-
-### Regenerate the iPhone Template Bank
-
-iPhone raw photos are stored here:
-
-```text
-pcb_template_tools/data/pcb_iphone_raw
-```
-
-Warp:
-
-```bash
-.venv/bin/python pcb_template_tools/tools/warp_and_rank_boards.py \
-  --input-dir pcb_template_tools/data/pcb_iphone_raw \
-  --output-dir pcb_template_tools/data/preparation_output
-```
-
-Extract templates:
-
-```bash
-.venv/bin/python pcb_template_tools/tools/extract_templates.py \
-  --report pcb_template_tools/data/preparation_output/board_quality_report.json \
-  --top-k 3 \
-  --output-dir pcb_template_tools/data/generated_templates \
-  --roi-file pcb_template_tools/data/generated_templates/component_rois.json
-```
-
-## Log Checks
-
-Show the latest log lines:
-
-```bash
-tail -n 80 logs/app.log
-```
-
-A successful live debug line typically contains these labels:
-
-```text
-labels=BOARD, ESP32, JST_CONNECTOR, RESET_BUTTON, USB_PORT
-```
-
-In Pi camera logs, `source=picamera:0` and `labels=...` lines confirm that the
-runtime is using the correct source.
+Confirm a box with `ENTER` or `SPACE`. Press `c` if you want to draw the box
+again.
 
 ## Important Settings
 
-Main configuration file:
+Most settings are in:
 
 ```text
 config/default.yaml
 ```
 
-Frequently used settings:
+Useful settings:
 
-- `runtime.processing_width`: default processing width.
-- `source_profiles.picamera`: template, board, and component overrides for Pi camera.
-- `source_profiles.picamera.templates`: paths for the Pi template bank.
-- `tracking.board_bbox_pad_right`: expands only the displayed `BOARD` box on the right.
-- `components.USB_PORT.output_bbox_pad_right`: expands the output USB box on the right.
-- `components.JST_CONNECTOR.output_bbox_pad_right`: expands the output JST box on the right.
-- `components.*.layout_anchor`: locks the component to the expected layout ROI when board and ROI evidence is reliable.
-- `components.*.layout_fallback_score`: score shown when layout fallback is used.
-- `components.*.search_roi_expansion`: expands the component search area.
-- `components.*.layout_roi_left_trim`: trims the left side of the layout box; used to keep USB/JST boxes further right.
-
-The latest live Pi profile settings keep the outer right edges of USB and JST
-inside their boxes. This improves the visual overlay without aggressively
-changing the template-matching logic.
+- `runtime.processing_width`: default processing width
+- `source_profiles.picamera`: special settings for the Pi camera
+- `templates`: paths to board and component templates
+- `components.*.roi`: search areas for each component
+- `tracking`: settings for live video smoothing
 
 ## Troubleshooting
-
-If Picamera2 is not available inside the virtual environment:
-
-```bash
-PYTHONPATH=. /usr/bin/python3 main.py --source picamera --camera-open-check --debug
-```
 
 If the camera does not open:
 
@@ -428,51 +320,21 @@ ls /dev/video*
 .venv/bin/python main.py --list-video-devices
 ```
 
-Save the first Pi camera frame:
+If Picamera2 is missing in the virtual environment, use:
 
 ```bash
-PYTHONPATH=. /usr/bin/python3 main.py \
-  --source picamera \
-  --camera-index 0 \
-  --camera-open-check \
-  --save-first-frame /tmp/picamera-first-frame.png \
-  --debug \
-  --width 1280 \
-  --height 720 \
-  --camera-fps 30
+PYTHONPATH=. /usr/bin/python3 main.py --source picamera --camera-open-check --debug
 ```
 
 If detection flickers:
 
-- Use steadier lighting.
-- Keep the board centered and reasonably large in the frame.
-- Keep the camera-to-board distance fixed.
-- Use `--proc-resize-width 720` for Pi camera; lower values may hurt the small
-  `RESET_BUTTON` box.
-- Capture new raw Pi photos and regenerate the `generated_templates_pi` bank.
+- Use stable light.
+- Keep the PCB large enough in the frame.
+- Keep the camera distance fixed.
+- Use `--proc-resize-width 720` on the Pi camera.
+- Make a new Pi template bank if the camera view changed a lot.
 
-## Developer Check Commands
+## License
 
-Syntax/import check:
-
-```bash
-python3 -m compileall main.py src tests
-```
-
-If pytest is installed:
-
-```bash
-python3 -m pytest -q
-```
-
-Short headless image check:
-
-```bash
-.venv/bin/python main.py \
-  --source images \
-  --images-dir pcb_template_tools/test_images \
-  --headless \
-  --debug \
-  --wait-ms 1 \
-  --proc-resize-width 960
-```
+This project is licensed under the **GNU General Public License v3.0 or later**
+(`GPL-3.0-or-later`). See [LICENSE](LICENSE).
