@@ -13,6 +13,12 @@ This script is designed for the workflow:
 
 Because all warped inputs are already canonicalized to the same board coordinate
 system, the same ROI coordinates can be reused across all selected board images.
+
+Python docs:
+- argparse: https://docs.python.org/3/library/argparse.html
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- json: https://docs.python.org/3/library/json.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ class TemplateRecord:
 # Image helpers
 # -----------------------------
 def ensure_gray(image: np.ndarray) -> np.ndarray:
+    """Return a grayscale copy of a BGR or grayscale template image."""
     if image.ndim == 2:
         return image.copy()
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -50,6 +57,7 @@ def ensure_gray(image: np.ndarray) -> np.ndarray:
 
 
 def rotate_keep_size(image: np.ndarray, angle_deg: float) -> np.ndarray:
+    """Rotate an image around its center without changing canvas size."""
     h, w = image.shape[:2]
     matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle_deg, 1.0)
     return cv2.warpAffine(
@@ -63,11 +71,13 @@ def rotate_keep_size(image: np.ndarray, angle_deg: float) -> np.ndarray:
 
 
 def adjust_brightness(image: np.ndarray, alpha: float, beta: int = 0) -> np.ndarray:
+    """Apply a simple brightness/contrast transform for template augmentation."""
     return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
 
 
 
 def add_mild_noise(image: np.ndarray, sigma: float = 4.0) -> np.ndarray:
+    """Add light Gaussian noise to make the template bank less brittle."""
     noise = np.random.normal(0.0, sigma, image.shape).astype(np.float32)
     noisy = image.astype(np.float32) + noise
     return np.clip(noisy, 0, 255).astype(np.uint8)
@@ -94,6 +104,7 @@ def make_augmentations(template_bgr: np.ndarray) -> dict[str, np.ndarray]:
 # ROI helpers
 # -----------------------------
 def parse_components(raw: str) -> list[str]:
+    """Parse a comma-separated component list while preserving selection order."""
     components = [item.strip() for item in raw.split(",") if item.strip()]
     if not components:
         raise ValueError("Component list is empty. Provide at least one component name.")
@@ -111,6 +122,7 @@ def select_single_roi(window_name: str, image: np.ndarray) -> tuple[int, int, in
 
 
 def draw_labeled_boxes(image: np.ndarray, rois: dict[str, list[int]]) -> np.ndarray:
+    """Draw selected ROI boxes and labels on a preview image."""
     preview = image.copy()
     for idx, (component, roi_xywh) in enumerate(rois.items(), start=1):
         x, y, w, h = roi_xywh
@@ -129,6 +141,7 @@ def draw_labeled_boxes(image: np.ndarray, rois: dict[str, list[int]]) -> np.ndar
 
 
 def validate_roi(x: int, y: int, w: int, h: int, image_shape: tuple[int, ...], min_size: int) -> None:
+    """Validate ROI size and image bounds before extracting templates."""
     if w == 0 or h == 0:
         raise ValueError("ROI width/height is zero.")
     if w < min_size or h < min_size:
@@ -149,6 +162,7 @@ def interactive_roi_selection(
     components: Sequence[str],
     min_size: int,
 ) -> dict[str, list[int]]:
+    """Collect component ROIs interactively from an OpenCV selection window."""
     print("[INFO] ROI extraction started.")
     print("[INFO] For each component, draw a rectangle and press ENTER or SPACE.")
     print("[INFO] Press 'c' in the ROI window to cancel a wrong selection and redraw.")
@@ -168,6 +182,7 @@ def interactive_roi_selection(
 
 
 def load_rois_from_file(roi_file: Path, image_shape: tuple[int, ...], min_size: int) -> dict[str, list[int]]:
+    """Load and validate previously saved ROI coordinates."""
     with open(roi_file, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
@@ -189,6 +204,7 @@ def load_rois_from_file(roi_file: Path, image_shape: tuple[int, ...], min_size: 
 # Input-resolution helpers
 # -----------------------------
 def deduplicate_keep_order(paths: Sequence[Path]) -> list[Path]:
+    """Return unique resolved paths without changing their first-seen order."""
     unique: list[Path] = []
     seen: set[Path] = set()
     for path in paths:
@@ -201,6 +217,7 @@ def deduplicate_keep_order(paths: Sequence[Path]) -> list[Path]:
 
 
 def resolve_images_from_report(report_path: Path, top_k: int) -> list[Path]:
+    """Read the top ranked warped image paths from a quality report."""
     with open(report_path, "r", encoding="utf-8") as f:
         report = json.load(f)
 
@@ -221,6 +238,7 @@ def resolve_images_from_report(report_path: Path, top_k: int) -> list[Path]:
 
 
 def resolve_images(args: argparse.Namespace) -> list[Path]:
+    """Merge image inputs from CLI flags and quality reports."""
     paths: list[Path] = []
 
     if args.image:
@@ -248,6 +266,7 @@ def resolve_images(args: argparse.Namespace) -> list[Path]:
 # CLI
 # -----------------------------
 def parse_args() -> argparse.Namespace:
+    """Parse command-line options for template extraction."""
     parser = argparse.ArgumentParser(
         description=(
             "Extract board-component templates from one or more canonical warped images. "
@@ -302,6 +321,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run ROI selection and template export."""
     args = parse_args()
 
     output_dir = Path(args.output_dir)

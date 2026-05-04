@@ -1,3 +1,12 @@
+"""Color conversion helpers for OpenCV frames.
+
+This module normalizes image inputs into grayscale uint8 arrays used by the
+geometry and template-matching stages.
+
+Python docs:
+- exceptions: https://docs.python.org/3/tutorial/errors.html
+"""
+
 from __future__ import annotations
 
 import cv2 as cv

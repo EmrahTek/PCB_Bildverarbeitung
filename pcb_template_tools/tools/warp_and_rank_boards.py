@@ -20,6 +20,13 @@ Canonical output convention for this toolkit:
 
 The orientation normalization heuristic is intentionally board-specific and tuned
 for the FireBeetle / ESP32-style board used in this project.
+
+Python docs:
+- argparse: https://docs.python.org/3/library/argparse.html
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- json: https://docs.python.org/3/library/json.html
+- math: https://docs.python.org/3/library/math.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
 """
 
 from __future__ import annotations
@@ -535,6 +542,7 @@ def save_mask(mask: Optional[np.ndarray], mask_path: Path, fallback_shape: tuple
 
 
 def iter_images(input_dir: Path) -> Iterable[Path]:
+    """Yield supported image files from the input directory in sorted order."""
     for path in sorted(input_dir.iterdir()):
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
             yield path
@@ -548,6 +556,7 @@ def process_single_image(
     out_w: int,
     out_h: int,
 ) -> DetectionResult | FailedResult:
+    """Process one raw image into a warped board, preview, mask, and metrics."""
     image = cv2.imread(str(image_path))
     if image is None:
         return FailedResult(source=str(image_path), reason="could_not_read_image")
@@ -596,6 +605,7 @@ def process_single_image(
 # CLI
 # -----------------------------
 def parse_args() -> argparse.Namespace:
+    """Parse command-line options for board warping and ranking."""
     parser = argparse.ArgumentParser(
         description="Warp raw board photos, normalize to canonical orientation, and rank the results by quality."
     )
@@ -607,6 +617,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run the batch board-warping workflow."""
     args = parse_args()
 
     input_dir = Path(args.input_dir)

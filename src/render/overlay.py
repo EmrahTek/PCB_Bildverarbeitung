@@ -1,3 +1,13 @@
+"""OpenCV overlay drawing for detection results.
+
+This module draws bounding boxes, labels, optional scores, and per-label counts
+on top of BGR or grayscale frames.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- typing.Iterable: https://docs.python.org/3/library/typing.html#typing.Iterable
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

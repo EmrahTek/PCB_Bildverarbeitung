@@ -1,22 +1,11 @@
-# dataclasses: BBox, Detection, FrameMeta
+"""Core dataclasses shared by the PCB detection project.
 
-"""
-types.py
+These small value objects define the common data passed between capture,
+preprocessing, detection, postprocessing, logging, and rendering stages.
 
-This module defines core data structures used across the PCB component detection project.
-The goal is to enforce clear, testable interfaces between the pipeline stages (capture,
-preprocessing, detection, postprocessing, rendering).
-
-Key concepts:
-- BBox: Axis-aligned bounding box in pixel coordinates.
-- Detection: A predicted object instance with label, confidence score, and BBox.
-- FrameMeta: Metadata for a captured frame (frame_id, timestamp, source).
-
-Inputs:
-- No direct inputs (data classes only).
-
-Outputs:
-- Dataclass definitions that are imported by other modules.
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- typing.Optional: https://docs.python.org/3/library/typing.html#typing.Optional
 """
 
 from __future__ import annotations

@@ -1,3 +1,13 @@
+"""Board localization and perspective normalization.
+
+This module finds candidate PCB quadrilaterals, scores board evidence, warps the
+board into canonical coordinates, and normalizes orientation for component ROIs.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- logging: https://docs.python.org/3/library/logging.html
+"""
+
 from __future__ import annotations
 
 import logging

@@ -1,3 +1,12 @@
+"""Preprocessing filters for matching and board localization.
+
+This module provides blur, CLAHE, Canny edge, unsharp-mask, and brightness
+normalization helpers used before template matching.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

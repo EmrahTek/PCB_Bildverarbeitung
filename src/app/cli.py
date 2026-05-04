@@ -1,3 +1,13 @@
+"""Command-line argument parsing for the PCB detection runtime.
+
+The parser centralizes camera, image, video, debugging, and processing options
+so main.py can build the requested source and detector pipeline.
+
+Python docs:
+- argparse: https://docs.python.org/3/library/argparse.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
+"""
+
 from __future__ import annotations
 
 import argparse

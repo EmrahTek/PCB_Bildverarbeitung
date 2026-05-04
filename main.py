@@ -1,3 +1,14 @@
+"""Application bootstrap for PCB component detection.
+
+This module wires together CLI arguments, YAML configuration, camera/image
+sources, board localization, template matching, and the runtime pipeline.
+
+Python docs:
+- argparse: https://docs.python.org/3/library/argparse.html
+- logging: https://docs.python.org/3/library/logging.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
+"""
+
 from __future__ import annotations
 
 import logging
@@ -28,6 +39,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _opencv_backend_available(backend_name: str) -> bool:
+    """Return whether the current OpenCV build exposes a named video backend."""
     backend_id = getattr(cv, backend_name, None)
     if backend_id is None or not hasattr(cv, "videoio_registry"):
         return False
@@ -38,6 +50,7 @@ def _opencv_backend_available(backend_name: str) -> bool:
 
 
 def _print_video_devices() -> None:
+    """Print detected Linux video devices and camera backend availability."""
     devices = discover_video_devices()
     if devices:
         print("Video devices:")
@@ -138,6 +151,7 @@ def build_source(args) -> FrameSource:
 
 
 def _tuple_floats(values: list[float]) -> tuple[float, ...]:
+    """Convert config list values into an immutable tuple of floats."""
     return tuple(float(value) for value in values)
 
 
@@ -211,10 +225,12 @@ def _apply_source_profile(config: dict[str, Any], source: str) -> dict[str, Any]
 
 
 def _existing_directories(candidates: list[str | Path]) -> list[Path]:
+    """Resolve the candidate paths that currently exist as directories."""
     return [Path(candidate).resolve() for candidate in candidates if Path(candidate).exists() and Path(candidate).is_dir()]
 
 
 def _first_existing_file(candidates: list[str | Path]) -> Path | None:
+    """Return the first candidate path that exists as a file."""
     for candidate in candidates:
         path = Path(candidate)
         if path.exists() and path.is_file():
@@ -223,6 +239,7 @@ def _first_existing_file(candidates: list[str | Path]) -> Path | None:
 
 
 def _load_prepared_template_bank(config: dict) -> PreparedTemplateBank | None:
+    """Load generated template-bank metadata when a configured path exists."""
     templates_cfg = config.get("templates", {})
     metadata_path = _first_existing_file(templates_cfg.get("prepared_metadata_paths", []))
     if metadata_path is None:
@@ -232,12 +249,14 @@ def _load_prepared_template_bank(config: dict) -> PreparedTemplateBank | None:
 
 
 def _rotate_template_bank(images: list[np.ndarray], turns_90: int) -> list[np.ndarray]:
+    """Rotate every template image by 90-degree turns when the profile requests it."""
     if turns_90 % 4 == 0:
         return images
     return [rotate_image(image, turns_90) for image in images]
 
 
 def _build_board_template_locator(config: dict, board_dirs: list[Path], template_rotation_turns: int) -> BoardTemplateLocator | None:
+    """Build the optional coarse board-template locator from reference boards."""
     board_template_cfg = config.get("board_template", {})
     if not bool(board_template_cfg.get("enabled", True)):
         return None
@@ -289,6 +308,7 @@ def _component_specs_and_matchers(
     prepared_bank: PreparedTemplateBank | None,
     template_rotation_turns: int,
 ) -> tuple[list[ComponentSpec], dict[str, TemplateMatcher]]:
+    """Create component specs and template matchers from config and metadata."""
     components_cfg = config["components"]
     template_dirs_cfg = config["templates"]["component_dirs"]
     use_prepared_rois = bool(config["templates"].get("use_prepared_rois", False))
@@ -535,6 +555,7 @@ def build_detector(config: dict, source: str) -> BoardFirstDetector:
 
 
 def main() -> None:
+    """Run the command-line entry point."""
     args = parse_args()
     setup_logging(args.logging)
     if args.list_video_devices:

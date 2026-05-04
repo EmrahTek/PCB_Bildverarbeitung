@@ -1,3 +1,14 @@
+"""Raspberry Pi Picamera2 frame source.
+
+This module imports Picamera2 lazily, configures the selected Pi camera, and
+converts captured frames into OpenCV BGR arrays for the shared pipeline.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- importlib: https://docs.python.org/3/library/importlib.html
+- sys: https://docs.python.org/3/library/sys.html
+"""
+
 from __future__ import annotations
 
 import importlib

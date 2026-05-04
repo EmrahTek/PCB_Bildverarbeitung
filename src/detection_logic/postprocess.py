@@ -1,3 +1,14 @@
+"""Postprocessing helpers for detection boxes.
+
+This module computes overlap metrics, maps canonical board boxes back to the
+original frame, counts labels, and smooths detections over short time windows.
+
+Python docs:
+- collections: https://docs.python.org/3/library/collections.html
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- typing: https://docs.python.org/3/library/typing.html
+"""
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict, deque

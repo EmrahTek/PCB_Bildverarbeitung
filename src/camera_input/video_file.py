@@ -1,3 +1,14 @@
+"""Video-file frame source for repeatable playback.
+
+This module reads frames from a video file, optionally loops, strides, and
+resizes them, and exposes the same FrameSource API as live camera inputs.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
+- time: https://docs.python.org/3/library/time.html
+"""
+
 from __future__ import annotations
 
 import logging

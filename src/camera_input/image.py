@@ -1,3 +1,14 @@
+"""Frame sources for still images and image folders.
+
+This module adapts one image file or a deterministic image folder sequence into
+the shared FrameSource API used by the live detection pipeline.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
+- time: https://docs.python.org/3/library/time.html
+"""
+
 from __future__ import annotations
 
 import logging
