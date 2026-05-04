@@ -1,3 +1,13 @@
+"""Filesystem and image-loading utilities.
+
+This module resolves project paths, loads YAML/image/template files, samples
+lists deterministically, and writes debug images.
+
+Python docs:
+- pathlib: https://docs.python.org/3/library/pathlib.html
+- typing: https://docs.python.org/3/library/typing.html
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

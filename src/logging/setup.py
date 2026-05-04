@@ -1,43 +1,15 @@
-# logging config (RotatingFileHandler)
-#Einheitliches Logging für die gesamte App (Console + rotierende Datei), via YAML oder dictConfig.
-"""
-setup.py
+"""Centralized logging setup for the PCB detection application.
 
-This module provides centralized logging setup for the application.
-It is responsible for:
-- configuring console/file handlers
-- enabling log rotation
-- applying a consistent log format across modules
+This module loads a YAML dictConfig, creates log directories for file handlers,
+and falls back to basicConfig when the YAML file is missing or invalid.
 
-Inputs:
-- Path to a logging configuration YAML (or dictConfig structure).
-
-Outputs:
-- Global logging configuration applied via logging.config.dictConfig
-- Helper function to retrieve module-level loggers
-
-logging basics:
-https://docs.python.org/3/library/logging.html
-
-logging.config.dictConfig:
-https://docs.python.org/3/library/logging.config.html
-
-RotatingFileHandler:
-https://docs.python.org/3/library/logging.handlers.html
-
-
-Zu implementierende Funktionen
-
-setup_logging(logging_config_path: Path) -> None
-
-get_logger(name: str) -> logging.Logger
-
-(Optional) log_environment_info(logger) -> None (Python-Version, OS, OpenCV-Version)
-
-
+Python docs:
+- logging: https://docs.python.org/3/library/logging.html
+- logging.config: https://docs.python.org/3/library/logging.config.html
+- logging.handlers: https://docs.python.org/3/library/logging.handlers.html
 """
 
-from __future__ import annotations 
+from __future__ import annotations
 
 import logging
 import logging.config
@@ -70,7 +42,7 @@ def setup_logging(logging_config_path: str | Path, *, default_level: int = loggi
 
 
 
-def _load_yaml(path: Path) -> Dict[str,Any]: # binde stricht bedeutet private funktion. 
+def _load_yaml(path: Path) -> Dict[str, Any]:
     """
     Load YAML file into a dict.
     Kept local to avoid scattering YAML dependency across the project.

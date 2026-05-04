@@ -1,3 +1,13 @@
+"""Board-first component detector.
+
+This module localizes the PCB, warps it into canonical coordinates, searches
+component ROIs with template matchers, and tracks boxes across live frames.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- logging: https://docs.python.org/3/library/logging.html
+"""
+
 from __future__ import annotations
 
 import logging

@@ -1,3 +1,14 @@
+"""IDS/uEye-aware camera frame source.
+
+This module can route IDS cameras through OpenCV or pyueye, validates Linux
+video device names, and returns standard BGR frames for the detector pipeline.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- pathlib: https://docs.python.org/3/library/pathlib.html
+- re: https://docs.python.org/3/library/re.html
+"""
+
 from __future__ import annotations
 
 import importlib.util
@@ -488,10 +499,12 @@ class PyUeyeSource(FrameSource):
 
 
 def pyueye_available() -> bool:
+    """Return whether the optional pyueye package can be imported."""
     return importlib.util.find_spec("pyueye") is not None
 
 
 def discover_video_devices(sys_class: Path = Path("/sys/class/video4linux")) -> list[VideoDeviceInfo]:
+    """Read Linux video device names from sysfs for camera diagnostics."""
     devices: list[VideoDeviceInfo] = []
     if not sys_class.exists():
         return devices
@@ -510,11 +523,13 @@ def discover_video_devices(sys_class: Path = Path("/sys/class/video4linux")) -> 
 
 
 def is_ids_device_name(name: str) -> bool:
+    """Return whether a Linux video-device name looks like an IDS/uEye camera."""
     lowered = name.strip().lower()
     return any(pattern in lowered for pattern in IDS_NAME_PATTERNS)
 
 
 def format_video_devices(devices: list[VideoDeviceInfo]) -> str:
+    """Format discovered devices for log messages and runtime errors."""
     if not devices:
         return "none"
     return ", ".join(f"{device.path}='{device.name or 'unknown'}'" for device in devices)

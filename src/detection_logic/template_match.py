@@ -1,3 +1,12 @@
+"""Template-matching detector for board components.
+
+This module prepares grayscale/edge template variants and searches image ROIs
+with multi-scale OpenCV template matching.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

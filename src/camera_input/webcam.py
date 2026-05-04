@@ -1,3 +1,14 @@
+"""OpenCV webcam frame source.
+
+This module resolves Linux camera targets and OpenCV backend choices, opens the
+selected webcam, and returns BGR frames with FrameMeta records.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- logging: https://docs.python.org/3/library/logging.html
+- re: https://docs.python.org/3/library/re.html
+"""
+
 from __future__ import annotations
 
 import logging

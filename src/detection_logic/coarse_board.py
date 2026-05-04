@@ -1,3 +1,12 @@
+"""Coarse full-frame board localization hints.
+
+This module uses template matches and simple line geometry to propose likely
+board boxes before the more precise perspective localizer refines the result.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

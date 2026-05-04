@@ -1,3 +1,13 @@
+"""FPS estimation for live display and diagnostics.
+
+This module keeps a small sliding window of frame timestamps and reports a
+smoothed frames-per-second estimate.
+
+Python docs:
+- collections.deque: https://docs.python.org/3/library/collections.html#collections.deque
+- time: https://docs.python.org/3/library/time.html
+"""
+
 from __future__ import annotations
 
 import time

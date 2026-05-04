@@ -1,3 +1,14 @@
+"""Runtime capture, detection, and rendering loop.
+
+The Pipeline class reads frames from a FrameSource, optionally preprocesses
+them, runs the detector, and either renders OpenCV output or runs headlessly.
+
+Python docs:
+- dataclasses: https://docs.python.org/3/library/dataclasses.html
+- logging: https://docs.python.org/3/library/logging.html
+- typing.Protocol: https://docs.python.org/3/library/typing.html#typing.Protocol
+"""
+
 from __future__ import annotations
 
 import logging
