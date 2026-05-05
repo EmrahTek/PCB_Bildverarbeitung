@@ -1,0 +1,356 @@
+{
+  "mode": "multi_image_canonical_roi_reuse",
+  "num_source_images": 4,
+  "source_images": [
+    "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0005_warped.png",
+    "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0003_warped.png",
+    "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0004_warped.png",
+    "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0006_warped.png"
+  ],
+  "reference_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0005_warped.png",
+  "image_shape": [
+    460,
+    900,
+    3
+  ],
+  "components": [
+    "esp32",
+    "usb_port",
+    "jst_connector",
+    "reset_button"
+  ],
+  "rois": {
+    "esp32": [
+      95,
+      92,
+      306,
+      284
+    ],
+    "usb_port": [
+      781,
+      101,
+      119,
+      132
+    ],
+    "jst_connector": [
+      744,
+      233,
+      156,
+      143
+    ],
+    "reset_button": [
+      578,
+      138,
+      64,
+      91
+    ]
+  },
+  "records": [
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        95,
+        92,
+        306,
+        284
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0005_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img01_pcb_0005_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        781,
+        101,
+        119,
+        132
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0005_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img01_pcb_0005_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        744,
+        233,
+        156,
+        143
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0005_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img01_pcb_0005_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        578,
+        138,
+        64,
+        91
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0005_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img01_pcb_0005_warped_noise.png"
+      ]
+    },
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        95,
+        92,
+        306,
+        284
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0003_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img02_pcb_0003_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        781,
+        101,
+        119,
+        132
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0003_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img02_pcb_0003_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        744,
+        233,
+        156,
+        143
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0003_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img02_pcb_0003_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        578,
+        138,
+        64,
+        91
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0003_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img02_pcb_0003_warped_noise.png"
+      ]
+    },
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        95,
+        92,
+        306,
+        284
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0004_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img03_pcb_0004_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        781,
+        101,
+        119,
+        132
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0004_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img03_pcb_0004_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        744,
+        233,
+        156,
+        143
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0004_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img03_pcb_0004_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        578,
+        138,
+        64,
+        91
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0004_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img03_pcb_0004_warped_noise.png"
+      ]
+    },
+    {
+      "component": "esp32",
+      "roi_xywh": [
+        95,
+        92,
+        306,
+        284
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0006_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/esp32/esp32_img04_pcb_0006_warped_noise.png"
+      ]
+    },
+    {
+      "component": "usb_port",
+      "roi_xywh": [
+        781,
+        101,
+        119,
+        132
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0006_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/usb_port/usb_port_img04_pcb_0006_warped_noise.png"
+      ]
+    },
+    {
+      "component": "jst_connector",
+      "roi_xywh": [
+        744,
+        233,
+        156,
+        143
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0006_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/jst_connector/jst_connector_img04_pcb_0006_warped_noise.png"
+      ]
+    },
+    {
+      "component": "reset_button",
+      "roi_xywh": [
+        578,
+        138,
+        64,
+        91
+      ],
+      "source_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output_pi/warped/pcb_0006_warped.png",
+      "files": [
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_base.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_bright.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_dark.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_blur.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_rot_p5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_rot_m5.png",
+        "pcb_template_tools/data/generated_templates_pi/reset_button/reset_button_img04_pcb_0006_warped_noise.png"
+      ]
+    }
+  ],
+  "preview": "pcb_template_tools/data/generated_templates_pi/selected_rois_preview.png",
+  "roi_file": "pcb_template_tools/data/generated_templates_pi/component_rois.json"
+}
