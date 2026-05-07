@@ -1,0 +1,34 @@
+{
+  "reference_image": "/home/emrahtek/codelab/PCB_Bildverarbeitung/pcb_template_tools/data/preparation_output/warped/IMG_9763_warped.png",
+  "reference_shape": [
+    460,
+    900,
+    3
+  ],
+  "rois": {
+    "esp32": [
+      79,
+      71,
+      290,
+      294
+    ],
+    "usb_port": [
+      718,
+      86,
+      124,
+      137
+    ],
+    "jst_connector": [
+      675,
+      220,
+      167,
+      146
+    ],
+    "reset_button": [
+      530,
+      126,
+      73,
+      91
+    ]
+  }
+}
